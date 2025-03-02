@@ -44,18 +44,18 @@ impl Clone for RingLayer {
 impl RingLayer {
     /// Create a new RingLayer with random initialization
     pub fn new(input_size: usize, output_size: usize, ring_size: u32) -> Self {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         
         // Initialize weights randomly on the ring
         let weights = (0..output_size)
             .map(|_| (0..input_size)
-                .map(|_| rng.gen_range(0..ring_size))
+                .map(|_| rng.random_range(0..ring_size))
                 .collect())
             .collect();
         
         // Initialize alpha between -1 and 1 (stored as 0-1, but interpreted as -1 to 1)
         let alpha = (0..output_size)
-            .map(|_| Fixed32::from_float(rng.gen_range(0.0..1.0)))
+            .map(|_| Fixed32::from_float(rng.random_range(0.0..1.0)))
             .collect();
         
         // Initialize gradients to zero

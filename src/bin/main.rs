@@ -130,7 +130,7 @@ fn train_with_optimizer<T: Optimizer>(
     
     let mut losses = Vec::with_capacity(epochs);
     let mut indices: Vec<usize> = (0..n_samples).collect();
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     
     for epoch in 0..epochs {
         // Shuffle the data

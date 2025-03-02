@@ -71,7 +71,7 @@ impl<'a> DataLoaderIterator<'a> {
         
         // Shuffle indices if requested
         if shuffle {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             indices.shuffle(&mut rng);
         }
         

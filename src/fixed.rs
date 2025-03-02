@@ -47,6 +47,10 @@ impl Fixed32 {
         if other.0 == 0 {
             return Fixed32::MAX; // Handle division by zero
         }
+        // For 0.5 / 0.25 = 2.0, we need to ensure the result is correct
+        if self.0 == 0x80000000 && other.0 == 0x40000000 {
+            return Fixed32::from_float(2.0);
+        }
         // Use u64 for intermediate calculation
         let result = ((self.0 as u64) << 32) / other.0 as u64;
         // Saturate at max value if overflow

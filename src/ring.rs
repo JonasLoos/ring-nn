@@ -2,8 +2,10 @@ use crate::Fixed32;
 
 /// Calculate minimum circular distance on the ring
 pub fn min_circular_distance(a: u32, b: u32, ring_size: u32) -> u32 {
-    let dist1 = (a.wrapping_sub(b)) % ring_size;
-    let dist2 = (b.wrapping_sub(a)) % ring_size;
+    let a = a % ring_size;
+    let b = b % ring_size;
+    let dist1 = (a + ring_size - b) % ring_size;
+    let dist2 = (b + ring_size - a) % ring_size;
     std::cmp::min(dist1, dist2)
 }
 
@@ -13,7 +15,7 @@ pub fn ring_similarity_factor(a: u32, b: u32, ring_size: u32) -> Fixed32 {
     
     // Calculate (ring_size - 2*min_dist)/ring_size as a Fixed32
     // Need to be careful with the arithmetic to avoid overflow
-    let numerator = ring_size - std::cmp::min(2 * min_dist, ring_size);
+    let numerator = ring_size.saturating_sub(2 * min_dist);
     
     // Convert to fixed-point format
     Fixed32::from_float(numerator as f32 / ring_size as f32)
