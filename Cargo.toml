@@ -1,0 +1,32 @@
+[package]
+name = "ring-nn"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "A neural network implementation using ring topology"
+license = "MIT"
+repository = "https://github.com/yourusername/ring-nn"
+readme = "README.md"
+keywords = ["neural-network", "machine-learning", "ring-topology"]
+categories = ["science", "algorithms"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.8.5"
+
+[dev-dependencies]
+criterion = "0.5.1"
+
+# Benchmark will be added later
+# [[bench]]
+# name = "network_benchmark"
+# harness = false
+
+[lib]
+name = "ring_nn"
+path = "src/lib.rs"
+
+[[bin]]
+name = "main"
+path = "src/bin/main.rs"
