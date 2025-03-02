@@ -2,15 +2,13 @@
 name = "ring-nn"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Jonas Loos <hi@jloos.de>"]
 description = "A neural network implementation using ring topology"
 license = "MIT"
-repository = "https://github.com/yourusername/ring-nn"
+repository = "https://github.com/JonasLoos/ring-nn"
 readme = "README.md"
 keywords = ["neural-network", "machine-learning", "ring-topology"]
 categories = ["science", "algorithms"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rand = "0.8.5"
