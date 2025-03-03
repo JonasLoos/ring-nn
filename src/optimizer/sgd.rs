@@ -28,14 +28,14 @@ mod tests {
     fn test_sgd_step() {
         // Create a small network for testing
         let mut network = RingNetwork::new();
-        network.add_layer(2, 1);
+        network.add_layer(2);
         
         // Set up gradients manually
-        network.layers[0].weight_gradients[0][0] = 10.0;
-        network.layers[0].weight_gradients[0][1] = -10.0;
+        network.layers[0].weight_gradients[0][0] = 0.1;
+        network.layers[0].weight_gradients[0][1] = -0.1;
         
         // Apply SGD step
-        let mut sgd = SGD::new(1.0);
+        let mut sgd = SGD::new(0.01);
         sgd.step(&mut network);
         
         // Verify that gradients are reset after the step

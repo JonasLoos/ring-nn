@@ -1,51 +1,37 @@
-use ring_nn::{Fixed32, RingNetwork, optimizer, loss, visualization, data};
+use ring_nn::{Fixed32, RingNetwork, optimizer, loss, visualization};
 use ring_nn::optimizer::Optimizer;
 use ring_nn::loss::Loss;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Define problem parameters
-    let input_size = 3;
-    let hidden_size = 5;
-    let output_size = 1;
+    let size = 3;
     
     // Create the network
     let mut network = RingNetwork::new();
-    network.add_layer(input_size, hidden_size);
-    network.add_layer(hidden_size, output_size);
+    network.add_layer(size);
+    network.add_layer(size);
     
     // Visualize initial network structure
     visualization::visualize_network_structure(&network);
     
     // Create synthetic data (more examples for better training)
     let data = vec![
-        vec![64, 128, 192],
-        vec![32, 96, 160],
-        vec![100, 150, 200],
-        vec![50, 75, 125],
-        vec![10, 30, 60],
-        vec![220, 180, 140],
-        vec![85, 170, 210],
-        vec![45, 90, 135],
+        vec![Fixed32::from_float(0.1).unwrap(), Fixed32::from_float(0.2).unwrap(), Fixed32::from_float(0.3).unwrap()],
+        vec![Fixed32::from_float(0.4).unwrap(), Fixed32::from_float(0.5).unwrap(), Fixed32::from_float(0.6).unwrap()],
+        vec![Fixed32::from_float(0.7).unwrap(), Fixed32::from_float(0.8).unwrap(), Fixed32::from_float(0.9).unwrap()],
+        vec![Fixed32::from_float(0.2).unwrap(), Fixed32::from_float(0.4).unwrap(), Fixed32::from_float(0.6).unwrap()],
+        vec![Fixed32::from_float(0.3).unwrap(), Fixed32::from_float(0.6).unwrap(), Fixed32::from_float(0.9).unwrap()],
+        vec![Fixed32::from_float(0.1).unwrap(), Fixed32::from_float(0.5).unwrap(), Fixed32::from_float(0.9).unwrap()]
     ];
     
     let targets = vec![
-        vec![Fixed32::from_float(0.8)],
-        vec![Fixed32::from_float(0.2)],
-        vec![Fixed32::from_float(0.9)],
-        vec![Fixed32::from_float(0.5)],
-        vec![Fixed32::from_float(0.1)],
-        vec![Fixed32::from_float(0.7)],
-        vec![Fixed32::from_float(0.95)],
-        vec![Fixed32::from_float(0.4)],
+        vec![Fixed32::from_float(0.2).unwrap(), Fixed32::from_float(0.3).unwrap(), Fixed32::from_float(0.4).unwrap()],
+        vec![Fixed32::from_float(0.5).unwrap(), Fixed32::from_float(0.6).unwrap(), Fixed32::from_float(0.7).unwrap()],
+        vec![Fixed32::from_float(0.8).unwrap(), Fixed32::from_float(0.9).unwrap(), Fixed32::from_float(1.0).unwrap()],
+        vec![Fixed32::from_float(0.3).unwrap(), Fixed32::from_float(0.5).unwrap(), Fixed32::from_float(0.7).unwrap()],
+        vec![Fixed32::from_float(0.4).unwrap(), Fixed32::from_float(0.7).unwrap(), Fixed32::from_float(1.0).unwrap()],
+        vec![Fixed32::from_float(0.2).unwrap(), Fixed32::from_float(0.6).unwrap(), Fixed32::from_float(1.0).unwrap()]
     ];
-    
-    // Create a DataLoader (we'll use it in a future example)
-    let _data_loader = data::DataLoader::new(
-        data.clone(),
-        targets.clone(),
-        2,  // batch_size
-        true, // shuffle
-    );
     
     // Create an optimizer (demonstrate both SGD and Adam)
     println!("\nTraining with SGD:");
@@ -104,8 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Adam Prediction: {}", adam_prediction[0].to_float());
     
     // Demonstrate cross entropy loss
-    let y_true = vec![Fixed32::from_float(1.0)];
-    let y_pred = vec![Fixed32::from_float(0.7)];
+    let y_true = vec![Fixed32::from_float(1.0).unwrap()];
+    let y_pred = vec![Fixed32::from_float(0.7).unwrap()];
     let ce_loss = loss::CrossEntropyLoss::forward(&y_pred, &y_true);
     println!("\nCross Entropy Loss Example: {}", ce_loss);
     
@@ -115,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Train using a generic optimizer
 fn train_with_optimizer<T: Optimizer>(
     network: &mut RingNetwork,
-    data: &[Vec<u32>],
+    data: &[Vec<Fixed32>],
     targets: &[Vec<Fixed32>],
     batch_size: usize,
     epochs: usize,

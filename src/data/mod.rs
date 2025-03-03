@@ -15,11 +15,11 @@ pub fn float_to_ring(data: &[Vec<f32>]) -> Vec<Vec<u32>> {
 }
 
 /// Convert float targets to Fixed32
-pub fn float_to_fixed(targets: &[Vec<f32>]) -> Vec<Vec<Fixed32>> {
+pub fn float_to_fixed(targets: &[Vec<f32>]) -> Option<Vec<Vec<Fixed32>>> {
     targets.iter()
         .map(|sample| sample.iter()
             .map(|&x| Fixed32::from_float(x))
-            .collect())
+            .collect::<Option<Vec<_>>>())
         .collect()
 }
 
@@ -61,7 +61,7 @@ mod tests {
             vec![0.1, 0.5, 0.9],
         ];
         
-        let fixed_targets = float_to_fixed(&targets);
+        let fixed_targets = float_to_fixed(&targets).unwrap();
         
         assert!((fixed_targets[0][0].to_float() - 0.1).abs() < 1e-6);
         assert!((fixed_targets[0][1].to_float() - 0.5).abs() < 1e-6);

@@ -130,10 +130,10 @@ mod tests {
         ];
         
         let targets = vec![
-            vec![Fixed32::from_float(0.1)],
-            vec![Fixed32::from_float(0.2)],
-            vec![Fixed32::from_float(0.3)],
-            vec![Fixed32::from_float(0.4)],
+            vec![Fixed32::from_float(0.1).unwrap()],
+            vec![Fixed32::from_float(0.2).unwrap()],
+            vec![Fixed32::from_float(0.3).unwrap()],
+            vec![Fixed32::from_float(0.4).unwrap()],
         ];
         
         let loader = DataLoader::new(data, targets, 2, false);
@@ -152,10 +152,10 @@ mod tests {
         ];
         
         let targets = vec![
-            vec![Fixed32::from_float(0.1)],
-            vec![Fixed32::from_float(0.2)],
-            vec![Fixed32::from_float(0.3)],
-            vec![Fixed32::from_float(0.4)],
+            vec![Fixed32::from_float(0.1).unwrap()],
+            vec![Fixed32::from_float(0.2).unwrap()],
+            vec![Fixed32::from_float(0.3).unwrap()],
+            vec![Fixed32::from_float(0.4).unwrap()],
         ];
         
         let loader = DataLoader::new(data, targets, 2, false);

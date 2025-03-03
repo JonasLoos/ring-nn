@@ -40,8 +40,14 @@ mod tests {
 
     #[test]
     fn test_mse_loss() {
-        let predictions = vec![Fixed32::from_float(0.5), Fixed32::from_float(0.8)];
-        let targets = vec![Fixed32::from_float(0.4), Fixed32::from_float(0.9)];
+        let predictions = vec![
+            Fixed32::from_float(0.5).unwrap(), 
+            Fixed32::from_float(0.8).unwrap()
+        ];
+        let targets = vec![
+            Fixed32::from_float(0.4).unwrap(), 
+            Fixed32::from_float(0.9).unwrap()
+        ];
         
         let loss = MSELoss::forward(&predictions, &targets);
         let gradients = MSELoss::backward(&predictions, &targets);

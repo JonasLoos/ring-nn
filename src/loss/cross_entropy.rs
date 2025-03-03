@@ -66,8 +66,8 @@ mod tests {
 
     #[test]
     fn test_binary_cross_entropy() {
-        let predictions = vec![Fixed32::from_float(0.7)];
-        let targets = vec![Fixed32::from_float(1.0)];
+        let predictions = vec![Fixed32::from_float(0.7).unwrap()];
+        let targets = vec![Fixed32::from_float(1.0).unwrap()];
         
         let loss = CrossEntropyLoss::forward(&predictions, &targets);
         let gradients = CrossEntropyLoss::backward(&predictions, &targets);
@@ -82,14 +82,14 @@ mod tests {
     #[test]
     fn test_multiclass_cross_entropy() {
         let predictions = vec![
-            Fixed32::from_float(0.1), 
-            Fixed32::from_float(0.7), 
-            Fixed32::from_float(0.2)
+            Fixed32::from_float(0.1).unwrap(),
+            Fixed32::from_float(0.7).unwrap(),
+            Fixed32::from_float(0.2).unwrap()
         ];
         let targets = vec![
-            Fixed32::from_float(0.0), 
-            Fixed32::from_float(1.0), 
-            Fixed32::from_float(0.0)
+            Fixed32::from_float(0.0).unwrap(),
+            Fixed32::from_float(1.0).unwrap(),
+            Fixed32::from_float(0.0).unwrap()
         ];
         
         let loss = CrossEntropyLoss::forward(&predictions, &targets);
@@ -98,9 +98,9 @@ mod tests {
         // Expected loss: -0.0*ln(0.1) - 1.0*ln(0.7) - 0.0*ln(0.2) ≈ 0.357
         assert!((loss - 0.357).abs() < 0.01);
         
-        // Expected gradients: [-0.0/0.1, -1.0/0.7, -0.0/0.2] ≈ [0, -1.429, 0]
+        // Expected gradients
         assert!((gradients[0] - 0.0).abs() < 0.01);
         assert!((gradients[1] + 1.429).abs() < 0.01);
         assert!((gradients[2] - 0.0).abs() < 0.01);
     }
-} 
+}

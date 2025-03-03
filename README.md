@@ -37,8 +37,8 @@ fn main() {
     // Create training data
     let data = vec![vec![64, 128, 192], vec![32, 96, 160]];
     let targets = vec![
-        vec![Fixed32::from_float(0.8)],
-        vec![Fixed32::from_float(0.2)]
+        vec![Fixed32::from_float(0.8).unwrap()],
+        vec![Fixed32::from_float(0.2).unwrap()]
     ];
     
     // Create data loader with batching

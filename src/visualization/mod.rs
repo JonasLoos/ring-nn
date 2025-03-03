@@ -1,6 +1,6 @@
 //! Visualization utilities for Ring Neural Networks
 
-use crate::RingNetwork;
+use crate::{RingNetwork, Fixed32};
 
 /// Plot training loss
 pub fn plot_loss(losses: &[f32]) {
@@ -62,13 +62,13 @@ pub fn plot_loss(losses: &[f32]) {
 }
 
 /// Visualize weight distribution on the ring
-pub fn visualize_ring_weights(weights: &[Vec<u32>]) {
+pub fn visualize_ring_weights(weights: &[Vec<Fixed32>]) {
     println!("Ring Weights Distribution:");
     println!("--------------------------");
     
     // Flatten all weights into a single vector
     let all_weights: Vec<u32> = weights.iter()
-        .flat_map(|row| row.iter().copied())
+        .flat_map(|row| row.iter().map(|w| w.0))
         .collect();
     
     if all_weights.is_empty() {
@@ -124,18 +124,11 @@ pub fn visualize_network_structure(network: &RingNetwork) {
     println!("Network Structure:");
     println!("-----------------");
     
-    let mut prev_size = 0;
-    
     for (i, layer) in network.layers.iter().enumerate() {
-        if i == 0 {
-            prev_size = layer.input_size;
-        }
-        
-        println!("Layer {}: {} -> {} neurons", i, prev_size, layer.output_size);
-        prev_size = layer.output_size;
+        println!("Layer {}: {} neurons", i, layer.size);
     }
     
     println!("Total parameters: {}", network.layers.iter()
-        .map(|layer| layer.input_size * layer.output_size + layer.output_size)
+        .map(|layer| layer.size * layer.size + layer.size)
         .sum::<usize>());
 } 
