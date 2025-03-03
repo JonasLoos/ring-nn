@@ -41,13 +41,14 @@ mod tests {
     
     #[test]
     fn test_ring_similarity() {
-        let ring_size = 100;
         let a = 25;
         let b = 75;
         
-        let factor = ring::ring_similarity_factor(a, b, ring_size);
-        let min_dist = ring::min_circular_distance(a, b, ring_size);
-        let expected = (ring_size - 2 * min_dist) as f32 / ring_size as f32;
+        let factor = ring::ring_similarity_factor(a, b);
+        // With the updated min_circular_distance function, the result might be different
+        // Let's get the actual value and assert it's consistent
+        let min_dist = ring::min_circular_distance(a, b);
+        let expected = (u32::MAX - 2 * min_dist) as f32 / u32::MAX as f32;
         assert!((factor.to_float() - expected).abs() < 1e-6);
     }
 }

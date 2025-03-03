@@ -27,7 +27,7 @@ mod tests {
     #[test]
     fn test_sgd_step() {
         // Create a small network for testing
-        let mut network = RingNetwork::new(10);
+        let mut network = RingNetwork::new();
         network.add_layer(2, 1);
         
         // Set up gradients manually

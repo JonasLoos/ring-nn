@@ -7,10 +7,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let input_size = 3;
     let hidden_size = 5;
     let output_size = 1;
-    let ring_size = 256; // Use a power of 2 for computational efficiency
     
     // Create the network
-    let mut network = RingNetwork::new(ring_size);
+    let mut network = RingNetwork::new();
     network.add_layer(input_size, hidden_size);
     network.add_layer(hidden_size, output_size);
     
@@ -90,10 +89,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Visualize weight distributions
     println!("\nSGD Weight Distribution:");
-    visualization::visualize_ring_weights(&network_sgd.layers[0].weights, ring_size);
+    visualization::visualize_ring_weights(&network_sgd.layers[0].weights);
     
     println!("\nAdam Weight Distribution:");
-    visualization::visualize_ring_weights(&network_adam.layers[0].weights, ring_size);
+    visualization::visualize_ring_weights(&network_adam.layers[0].weights);
     
     // Test both networks
     let test_input = vec![50, 100, 150];
@@ -104,11 +103,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("SGD Prediction: {}", sgd_prediction[0].to_float());
     println!("Adam Prediction: {}", adam_prediction[0].to_float());
     
-    // Demonstrate using CrossEntropyLoss for a binary classification example
-    let binary_pred = vec![Fixed32::from_float(0.7)];
-    let binary_target = vec![Fixed32::from_float(1.0)];
-    
-    let ce_loss = loss::CrossEntropyLoss::forward(&binary_pred, &binary_target);
+    // Demonstrate cross entropy loss
+    let y_true = vec![Fixed32::from_float(1.0)];
+    let y_pred = vec![Fixed32::from_float(0.7)];
+    let ce_loss = loss::CrossEntropyLoss::forward(&y_pred, &y_true);
     println!("\nCross Entropy Loss Example: {}", ce_loss);
     
     Ok(())

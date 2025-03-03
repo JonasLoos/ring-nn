@@ -7,8 +7,6 @@ pub struct RingLayer {
     pub input_size: usize,
     /// Number of output neurons
     pub output_size: usize,
-    /// Size of the ring
-    pub ring_size: u32,
     /// Weights for each connection (output_size × input_size)
     pub weights: Vec<Vec<u32>>,
     /// Alpha scaling factors for each output neuron
@@ -32,7 +30,6 @@ impl Clone for RingLayer {
         RingLayer {
             input_size: self.input_size,
             output_size: self.output_size,
-            ring_size: self.ring_size,
             weights: self.weights.clone(),
             alpha: self.alpha.clone(),
             weight_gradients: vec![vec![0.0; self.input_size]; self.output_size],
@@ -43,13 +40,13 @@ impl Clone for RingLayer {
 
 impl RingLayer {
     /// Create a new RingLayer with random initialization
-    pub fn new(input_size: usize, output_size: usize, ring_size: u32) -> Self {
+    pub fn new(input_size: usize, output_size: usize) -> Self {
         let mut rng = rand::rng();
         
         // Initialize weights randomly on the ring
         let weights = (0..output_size)
             .map(|_| (0..input_size)
-                .map(|_| rng.random_range(0..ring_size))
+                .map(|_| rng.random_range(0..u32::MAX))
                 .collect())
             .collect();
         
@@ -65,7 +62,6 @@ impl RingLayer {
         RingLayer {
             input_size,
             output_size,
-            ring_size,
             weights,
             alpha,
             weight_gradients,
@@ -84,18 +80,18 @@ impl RingLayer {
             
             // For each input connection
             for j in 0..self.input_size {
-                let x_j = input[j] % self.ring_size;
+                let x_j = input[j];
                 let w_ij = self.weights[i][j];
                 
                 // Calculate ring similarity factor
-                let factor = ring::ring_similarity_factor(x_j, w_ij, self.ring_size);
+                let factor = ring::ring_similarity_factor(x_j, w_ij);
                 
                 // Accumulate product
                 product = product.mul(factor);
             }
             
             // Scale by alpha and n/2
-            let ring_scale = Fixed32::from_float(self.ring_size as f32 / 2.0);
+            let ring_scale = Fixed32::from_float(0.5); // 1/2 scaling factor
             let alpha_mapped = Fixed32::from_float(self.alpha[i].to_float() * 2.0 - 1.0); // Map from 0-1 to -1-1
             output[i] = alpha_mapped.mul(ring_scale).mul(product);
         }
@@ -106,8 +102,8 @@ impl RingLayer {
     /// Forward pass with caching for backpropagation
     pub fn forward_with_cache(&self, input: &[u32]) -> (Vec<Fixed32>, ForwardCache) {
         let mut output = vec![Fixed32::ZERO; self.output_size];
-        let mut intermediate_products = vec![vec![Fixed32::ONE; self.input_size]; self.output_size];
-        let mut final_products = vec![Fixed32::ONE; self.output_size];
+        let mut intermediate_products = vec![vec![Fixed32::ZERO; self.input_size]; self.output_size];
+        let mut final_products = vec![Fixed32::ZERO; self.output_size];
         
         // For each output neuron
         for i in 0..self.output_size {
@@ -116,28 +112,29 @@ impl RingLayer {
             
             // For each input connection
             for j in 0..self.input_size {
-                let x_j = input[j] % self.ring_size;
+                let x_j = input[j];
                 let w_ij = self.weights[i][j];
                 
                 // Calculate ring similarity factor
-                let factor = ring::ring_similarity_factor(x_j, w_ij, self.ring_size);
+                let factor = ring::ring_similarity_factor(x_j, w_ij);
                 
-                // Record intermediate product
-                intermediate_products[i][j] = product;
+                // Store intermediate product
+                intermediate_products[i][j] = factor;
                 
                 // Accumulate product
                 product = product.mul(factor);
             }
             
-            // Record final product
+            // Store final product
             final_products[i] = product;
             
             // Scale by alpha and n/2
-            let ring_scale = Fixed32::from_float(self.ring_size as f32 / 2.0);
+            let ring_scale = Fixed32::from_float(0.5); // 1/2 scaling factor
             let alpha_mapped = Fixed32::from_float(self.alpha[i].to_float() * 2.0 - 1.0); // Map from 0-1 to -1-1
             output[i] = alpha_mapped.mul(ring_scale).mul(product);
         }
         
+        // Create cache for backpropagation
         let cache = ForwardCache {
             inputs: input.to_vec(),
             intermediate_products,
@@ -168,7 +165,7 @@ impl RingLayer {
             }
             
             // Scale factor n/2
-            let ring_scale = self.ring_size as f32 / 2.0;
+            let ring_scale = 0.5;
             
             // Gradient for alpha (map from -1-1 to 0-1 scale)
             let alpha_mapped = self.alpha[i].to_float() * 2.0 - 1.0;
@@ -177,7 +174,7 @@ impl RingLayer {
             
             // For each input connection
             for j in 0..self.input_size {
-                let x_j = cache.inputs[j] % self.ring_size;
+                let x_j = cache.inputs[j];
                 let w_ij = self.weights[i][j];
                 
                 // Get intermediate product before this factor was applied
@@ -188,29 +185,29 @@ impl RingLayer {
                 // where factor = (n-2*min_dist)/n
                 
                 // Calculate both distances to determine which one is minimum
-                let dist1 = (x_j.wrapping_sub(w_ij)) % self.ring_size;
-                let dist2 = (w_ij.wrapping_sub(x_j)) % self.ring_size;
+                let dist1 = x_j.wrapping_sub(w_ij);
+                let dist2 = w_ij.wrapping_sub(x_j);
                 
                 // Determine gradient direction based on which distance is smaller
                 let grad_direction = if dist1 <= dist2 { 2.0 } else { -2.0 };
                 
                 // Scale by 1/n
-                let grad_factor = grad_direction / self.ring_size as f32;
+                let grad_factor = grad_direction / u32::MAX as f32;
                 
                 // Calculate gradient for weight
                 let weight_grad = grad_out_i * alpha_mapped * ring_scale * 
                                  prev_product * grad_factor * 
                                  cache.final_products[i].to_float() / 
-                                 ring::ring_similarity_factor(x_j, w_ij, self.ring_size).to_float();
+                                 ring::ring_similarity_factor(x_j, w_ij).to_float();
                 
                 self.weight_gradients[i][j] += weight_grad;
                 
                 // Calculate gradient for input
                 // Similar calculation but with opposite sign on gradient direction
                 let input_grad = grad_out_i * alpha_mapped * ring_scale * 
-                                prev_product * (-grad_direction) / self.ring_size as f32 * 
+                                prev_product * (-grad_direction) / u32::MAX as f32 * 
                                 cache.final_products[i].to_float() / 
-                                ring::ring_similarity_factor(x_j, w_ij, self.ring_size).to_float();
+                                ring::ring_similarity_factor(x_j, w_ij).to_float();
                 
                 grad_input[j] += input_grad;
             }
@@ -229,12 +226,11 @@ impl RingLayer {
                 if update != 0 {
                     // Apply update with wrapping to stay on ring
                     if update > 0 {
-                        self.weights[i][j] = (self.weights[i][j] + update as u32) % self.ring_size;
+                        self.weights[i][j] = self.weights[i][j].wrapping_add(update as u32);
                     } else {
                         // Handle negative updates with wrapping
                         let abs_update = update.unsigned_abs() as u32;
-                        self.weights[i][j] = (self.weights[i][j] + self.ring_size - 
-                                            (abs_update % self.ring_size)) % self.ring_size;
+                        self.weights[i][j] = self.weights[i][j].wrapping_sub(abs_update);
                     }
                 }
                 
@@ -258,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_layer_forward() {
-        let layer = RingLayer::new(2, 1, 10);
+        let layer = RingLayer::new(2, 1);
         let input = vec![3, 7];
         let output = layer.forward(&input);
         

@@ -6,10 +6,10 @@ pub use loader::DataLoader;
 use crate::Fixed32;
 
 /// Convert float data to ring representation
-pub fn float_to_ring(data: &[Vec<f32>], ring_size: u32) -> Vec<Vec<u32>> {
+pub fn float_to_ring(data: &[Vec<f32>]) -> Vec<Vec<u32>> {
     data.iter()
         .map(|sample| sample.iter()
-            .map(|&x| (x.clamp(0.0, 1.0) * ring_size as f32) as u32 % ring_size)
+            .map(|&x| (x.clamp(0.0, 1.0) * u32::MAX as f32) as u32)
             .collect())
         .collect()
 }
@@ -34,15 +34,25 @@ mod tests {
             vec![0.0, 0.3, 1.0],
         ];
         
-        let ring_data = float_to_ring(&data, 10);
+        let ring_data = float_to_ring(&data);
         
-        // Expected: [[1, 5, 9], [0, 3, 0]]
-        assert_eq!(ring_data[0][0], 1);
-        assert_eq!(ring_data[0][1], 5);
-        assert_eq!(ring_data[0][2], 9);
+        // Check that values are proportional to the input
+        assert!(ring_data[0][0] < ring_data[0][1]);
+        assert!(ring_data[0][1] < ring_data[0][2]);
         assert_eq!(ring_data[1][0], 0);
-        assert_eq!(ring_data[1][1], 3);
-        assert_eq!(ring_data[1][2], 0); // 1.0 wraps to 0 on a ring of size 10
+        assert!(ring_data[1][1] > 0);
+        assert_eq!(ring_data[1][2], u32::MAX); // 1.0 maps to u32::MAX
+        
+        // Check approximate values
+        let expected_0_1 = (0.1 * u32::MAX as f32) as u32;
+        let expected_0_5 = (0.5 * u32::MAX as f32) as u32;
+        let expected_0_9 = (0.9 * u32::MAX as f32) as u32;
+        let expected_0_3 = (0.3 * u32::MAX as f32) as u32;
+        
+        assert_eq!(ring_data[0][0], expected_0_1);
+        assert_eq!(ring_data[0][1], expected_0_5);
+        assert_eq!(ring_data[0][2], expected_0_9);
+        assert_eq!(ring_data[1][1], expected_0_3);
     }
 
     #[test]

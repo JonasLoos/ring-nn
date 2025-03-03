@@ -61,68 +61,68 @@ pub fn plot_loss(losses: &[f32]) {
     }
 }
 
-/// Visualize weights on the ring
-pub fn visualize_ring_weights(weights: &[Vec<u32>], ring_size: u32) {
+/// Visualize weight distribution on the ring
+pub fn visualize_ring_weights(weights: &[Vec<u32>]) {
     println!("Ring Weights Distribution:");
     println!("--------------------------");
     
-    // Count weights in each sector of the ring
-    let num_sectors = 16; // Divide the ring into 16 sectors for visualization
-    let sector_size = ring_size / num_sectors;
+    // Flatten all weights into a single vector
+    let all_weights: Vec<u32> = weights.iter()
+        .flat_map(|row| row.iter().copied())
+        .collect();
     
-    // Initialize counters for each sector
-    let mut sector_counts = vec![0; num_sectors as usize];
-    
-    // Count weights in each sector
-    for row in weights {
-        for &weight in row {
-            let sector = (weight / sector_size) as usize % num_sectors as usize;
-            sector_counts[sector] += 1;
-        }
+    if all_weights.is_empty() {
+        println!("No weights to visualize.");
+        return;
     }
     
-    // Find the maximum count for scaling
-    let max_count = *sector_counts.iter().max().unwrap_or(&1);
+    // Define number of bins (16 bins for a cleaner visualization)
+    let num_bins = 16usize;
+    let bin_size = u32::MAX / (num_bins as u32);
     
-    // Print the distribution
-    let max_bar_length = 50;
-    for (i, &count) in sector_counts.iter().enumerate() {
-        let start = i as u32 * sector_size;
-        let end = start + sector_size - 1;
+    // Count weights in each bin
+    let mut bins = vec![0usize; num_bins];
+    for &w in &all_weights {
+        let bin_idx = (w / bin_size) as usize;
+        let bin_idx = bin_idx.min(num_bins - 1); // Handle edge case for max value
+        bins[bin_idx] += 1;
+    }
+    
+    // Find max count for scaling
+    let max_count = *bins.iter().max().unwrap_or(&1);
+    
+    // Display histogram
+    for i in 0..num_bins {
+        let start = (i as u32) * bin_size;
+        let end = if i == num_bins - 1 { u32::MAX } else { start + bin_size - 1 };
         
-        // Scale the bar length
-        let bar_length = ((count as f32 / max_count as f32) * max_bar_length as f32).round() as usize;
+        let bar_width = 50usize;
+        let bar_length = (bins[i] * bar_width) / max_count;
         
-        // Print the bar
-        print!("[{:3}-{:3}] ", start, end);
+        print!("[{:3}-{:3}] ", start / (u32::MAX / 256), end / (u32::MAX / 256));
         for _ in 0..bar_length {
             print!("#");
         }
-        println!(" ({})", count);
+        println!(" ({})", bins[i]);
     }
     
-    // Print total number of weights
-    let total_weights: usize = sector_counts.iter().sum();
-    println!("Total weights: {}", total_weights);
+    println!("Total weights: {}", all_weights.len());
 }
 
 /// Visualize weights for a specific layer in the network
 pub fn visualize_ring_weights_for_network(network: &RingNetwork, layer_idx: usize) {
-    if layer_idx >= network.num_layers() {
-        println!("Error: Layer index {} is out of bounds (network has {} layers)",
-                layer_idx, network.num_layers());
+    if layer_idx >= network.layers.len() {
+        println!("Layer index out of bounds.");
         return;
     }
     
-    // Now we can directly access the weights since layers is public
-    visualize_ring_weights(&network.layers[layer_idx].weights, network.ring_size());
+    visualize_ring_weights(&network.layers[layer_idx].weights);
 }
 
 /// Visualize network structure
 pub fn visualize_network_structure(network: &RingNetwork) {
     println!("Network Structure:");
     println!("-----------------");
-    println!("Ring Size: {}", network.ring_size());
     
     let mut prev_size = 0;
     
