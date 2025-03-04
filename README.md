@@ -54,10 +54,7 @@ fn main() {
     // Train network
     let mut losses = Vec::new();
     
-    // Reduce epochs for testing
-    let epochs = 5;
-    
-    for _epoch in 0..epochs {
+    for epoch in 0..50 {
         let mut epoch_loss = 0.0;
         
         for i in 0..data.len() {
@@ -104,7 +101,15 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-ring-nn = "0.1.0"
+ring-nn = { git = "https://github.com/JonasLoos/ring-nn.git" }
+```
+
+Alternatively, you can clone the repository and build from source:
+
+```bash
+git clone https://github.com/JonasLoos/ring-nn.git
+cd ring-nn
+cargo build --release
 ```
 
 
