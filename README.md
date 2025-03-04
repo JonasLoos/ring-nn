@@ -1,25 +1,9 @@
 # Ring Neural Network
 
-A neural network implementation using ring topology in Rust.
+Ring Neural Network is a novel neural network architecture that represents weights and inputs as positions on the circular ring naturally provided by u32 with overflow. Activations are computed using the product of similarities between weights and inputs.
 
 
-## Overview
-
-Ring Neural Network is a novel neural network architecture that represents weights and inputs as positions on a circular ring, with similarity determined by their circular distance. Unlike traditional neural networks that use floating-point weights, this architecture offers unique properties for certain types of problems, particularly those with circular or periodic features.
-
-
-## Features
-
-- Fixed-point arithmetic for high precision
-- Ring topology for weights and inputs
-- Product-based activation function
-- Multiple optimizer implementations (SGD, Adam)
-- Loss functions (MSE, Cross Entropy)
-- Data handling with batch processing
-- Visualization utilities for network structure and training progress
-
-
-## Current State
+Current State:
 
 * [x] First implementation
 * [x] Make sure the network learns at all
