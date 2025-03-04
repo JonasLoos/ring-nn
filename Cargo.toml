@@ -28,3 +28,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "main"
 path = "src/bin/main.rs"
+
+[[bin]]
+name = "2d_run"
+path = "testing/2d/2d_run.rs"
