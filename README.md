@@ -22,50 +22,75 @@ Ring Neural Network is a novel neural network architecture that represents weigh
 ## Usage
 
 ```rust
-use ring_nn::{Fixed32, RingNetwork, optimizer, loss, visualization, data};
+use ring_nn::{Fixed32, RingNetwork, optimizer, loss, visualization};
 use ring_nn::optimizer::Optimizer;
 use ring_nn::loss::Loss;
 
 fn main() {
-    // Create a network with ring size 256
-    let mut network = RingNetwork::new(256);
+    // Create a network
+    let mut network = RingNetwork::new();
     
-    // Add layers
-    network.add_layer(3, 5);  // 3 inputs, 5 hidden neurons
-    network.add_layer(5, 1);  // 5 hidden neurons, 1 output
+    // Add layers (each with 3 neurons)
+    network.add_layer(3);  // Input layer
+    network.add_layer(3);  // Output layer
     
-    // Create training data
-    let data = vec![vec![64, 128, 192], vec![32, 96, 160]];
-    let targets = vec![
-        vec![Fixed32::from_float(0.8).unwrap()],
-        vec![Fixed32::from_float(0.2).unwrap()]
+    // Visualize network structure
+    visualization::visualize_network_structure(&network);
+    
+    // Create training data (using Fixed32 values)
+    let data = vec![
+        vec![Fixed32::from_float(0.1).unwrap(), Fixed32::from_float(0.2).unwrap(), Fixed32::from_float(0.3).unwrap()],
+        vec![Fixed32::from_float(0.4).unwrap(), Fixed32::from_float(0.5).unwrap(), Fixed32::from_float(0.6).unwrap()]
     ];
     
-    // Create data loader with batching
-    let data_loader = data::DataLoader::new(
-        data.clone(),
-        targets.clone(),
-        2,  // batch_size
-        true // shuffle
-    );
+    let targets = vec![
+        vec![Fixed32::from_float(0.2).unwrap(), Fixed32::from_float(0.3).unwrap(), Fixed32::from_float(0.4).unwrap()],
+        vec![Fixed32::from_float(0.5).unwrap(), Fixed32::from_float(0.6).unwrap(), Fixed32::from_float(0.7).unwrap()]
+    ];
     
-    // Create optimizer
-    let mut optimizer = optimizer::Adam::new(0.01, 0.9, 0.999, 1e-8);
+    // Create an optimizer
+    let mut optimizer = optimizer::Adam::new(0.005, 0.9, 0.999, 1e-8);
     
-    // Train network (simplified)
+    // Train network
+    let mut losses = Vec::new();
+    
     for epoch in 0..50 {
-        // Training code...
-        // optimizer.update(&mut network, &loss_gradient);
+        let mut epoch_loss = 0.0;
+        
+        for i in 0..data.len() {
+            // Forward pass with caching
+            let (predictions, caches) = network.forward_with_cache(&data[i]);
+            
+            // Calculate loss
+            let loss = loss::MSELoss::forward(&predictions, &targets[i]);
+            epoch_loss += loss;
+            
+            // Calculate loss gradients
+            let loss_grad = loss::MSELoss::backward(&predictions, &targets[i]);
+            
+            // Backward pass
+            network.backward(&loss_grad, &caches);
+            
+            // Apply gradients
+            optimizer.step(&mut network);
+        }
+        
+        // Record average loss
+        epoch_loss /= data.len() as f32;
+        losses.push(epoch_loss);
+        
+        println!("Epoch {}: Loss = {}", epoch, epoch_loss);
     }
     
     // Visualize results
     visualization::plot_loss(&losses);
-    visualization::visualize_ring_weights(&network.layers[0].weights, 256);
+    visualization::visualize_ring_weights(&network.layers[0].weights);
     
-    // Make predictions
+    // Make predictions with raw u32 inputs
     let input = vec![50, 100, 150];
     let prediction = network.forward(&input);
-    println!("Prediction: {}", prediction[0].to_float());
+    
+    println!("Prediction: {:?}", prediction.iter().map(|p| p.to_float()).collect::<Vec<f32>>());
 }
 ```
 
