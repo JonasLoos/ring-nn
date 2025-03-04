@@ -210,28 +210,28 @@ impl RingLayer {
         for i in 0..self.size {
             for j in 0..self.size {
                 // Calculate weight update
-                let update = (learning_rate * self.weight_gradients[i][j]) as i32;
-                if update != 0 {
-                    // Apply update
-                    if update > 0 {
-                        // Create a Fixed32 with the update value
-                        if let Some(update_fixed) = Fixed32::from_float(update as f32 / u32::MAX as f32) {
-                            self.weights[i][j] = self.weights[i][j] + update_fixed;
-                        }
-                    } else {
-                        // Handle negative updates
-                        if let Some(update_fixed) = Fixed32::from_float((-update) as f32 / u32::MAX as f32) {
-                            self.weights[i][j] = self.weights[i][j] - update_fixed;
-                        }
-                    }
+                let update_raw = learning_rate * self.weight_gradients[i][j];
+                let update = update_raw.clamp(-0.5, 0.5);
+
+                // Log if clipping occurred
+                if update_raw != update {
+                    println!("Warning: Gradient clipped from {} to {} for weight [{},{}]", 
+                           update_raw, update, i, j);
+                }
+
+                // Apply update
+                if update > 0.0 {
+                    self.weights[i][j] -= Fixed32::from_float(update).unwrap();
+                } else {
+                    self.weights[i][j] += Fixed32::from_float(-update).unwrap();
                 }
                 
                 // Reset gradient
                 self.weight_gradients[i][j] = 0.0;
             }
             
-            // Update alpha (keeping it in 0-1 range)
-            self.alpha[i] = (self.alpha[i] + learning_rate * self.alpha_gradients[i]).clamp(0.0, 1.0);
+            // Update alpha
+            self.alpha[i] -= learning_rate * self.alpha_gradients[i];
             
             // Reset gradient
             self.alpha_gradients[i] = 0.0;

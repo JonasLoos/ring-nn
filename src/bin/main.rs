@@ -43,8 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut network_sgd,
         &data,
         &targets,
-        2,  // batch_size
-        50, // epochs
+        2,
+        50,
         &mut sgd_optimizer,
     );
     
@@ -61,8 +61,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &mut network_adam,
         &data,
         &targets,
-        2,  // batch_size
-        50, // epochs
+        2,
+        50,
         &mut adam_optimizer,
     );
     
