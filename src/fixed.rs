@@ -44,7 +44,7 @@ impl Fixed32 {
         Fixed32(self.0.wrapping_sub(other.0))
     }
 
-    /// Distance between two fixed-point numbers, between 0 and 0.5
+    /// Minimum distance between two fixed-point numbers, between 0 and 0.5
     pub fn dist(self, other: Self) -> Self {
         Fixed32((self - other).0.min((other - self).0))
     }
@@ -54,6 +54,7 @@ impl Fixed32 {
         Fixed32::ONE - Fixed32(self.dist(other).0 * 2)
     }
 }
+
 
 // Implement standard operators
 impl std::ops::Mul for Fixed32 {
@@ -78,6 +79,7 @@ impl std::ops::Sub for Fixed32 {
 }
 
 
+// Implement assignment operators
 impl std::ops::MulAssign for Fixed32 {
     fn mul_assign(&mut self, other: Self) {
         *self = self.mul(other);
@@ -132,7 +134,7 @@ mod tests {
             // (a, b, expected)
             (0.0, 0.0, 0.0),          // Zero + Zero
             (0.5, 0.25, 0.75),        // Regular addition
-            (0.75, 0.5, 0.25),         // Wrapping
+            (0.75, 0.5, 0.25),        // Wrapping
         ];
 
         for (a, b, expected) in test_cases {

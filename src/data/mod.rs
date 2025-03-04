@@ -23,6 +23,7 @@ pub fn float_to_fixed(targets: &[Vec<f32>]) -> Option<Vec<Vec<Fixed32>>> {
         .collect()
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;

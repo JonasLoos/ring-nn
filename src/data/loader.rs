@@ -170,4 +170,4 @@ mod tests {
         assert_eq!(batches[0], (2, 2));
         assert_eq!(batches[1], (2, 2));
     }
-} 
+}
