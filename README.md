@@ -22,9 +22,9 @@ Ring Neural Network is a novel neural network architecture that represents weigh
 ## Usage
 
 ```rust
-use ring_nn::{Fixed32, RingNetwork, optimizer, loss, visualization};
-use ring_nn::optimizer::Optimizer;
-use ring_nn::loss::Loss;
+use ring_nn::{Fixed32, RingNetwork, visualization};
+use ring_nn::loss::{MSELoss, Loss};
+use ring_nn::optimizer::{Adam, Optimizer};
 
 fn main() {
     // Create a network
@@ -49,12 +49,15 @@ fn main() {
     ];
     
     // Create an optimizer
-    let mut optimizer = optimizer::Adam::new(0.005, 0.9, 0.999, 1e-8);
+    let mut optimizer = Adam::new(0.005, 0.9, 0.999, 1e-8);
     
     // Train network
     let mut losses = Vec::new();
     
-    for epoch in 0..50 {
+    // Reduce epochs for testing
+    let epochs = 5;
+    
+    for _epoch in 0..epochs {
         let mut epoch_loss = 0.0;
         
         for i in 0..data.len() {
@@ -62,11 +65,11 @@ fn main() {
             let (predictions, caches) = network.forward_with_cache(&data[i]);
             
             // Calculate loss
-            let loss = loss::MSELoss::forward(&predictions, &targets[i]);
+            let loss = MSELoss::forward(&predictions, &targets[i]);
             epoch_loss += loss;
             
             // Calculate loss gradients
-            let loss_grad = loss::MSELoss::backward(&predictions, &targets[i]);
+            let loss_grad = MSELoss::backward(&predictions, &targets[i]);
             
             // Backward pass
             network.backward(&loss_grad, &caches);
