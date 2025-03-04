@@ -19,6 +19,16 @@ Ring Neural Network is a novel neural network architecture that represents weigh
 - Visualization utilities for network structure and training progress
 
 
+## Current State
+
+* [x] First implementation
+* [x] Make sure the network learns at all
+* [ ] Make sure the network can learn something meaningful (simple functions)
+* [ ] Extend the architecture so more complex tasks are possible
+* [ ] Test the network on more complex tasks (e.g. MNIST)
+* [ ] Optimize/parallelize the implementation
+
+
 ## Usage
 
 ```rust
