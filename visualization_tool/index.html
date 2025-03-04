@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ring Neural Network - Training Logs Viewer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+    <script src="chart-plugin.js"></script>
+</head>
+<body>
+    <header>
+        <h1>Ring Neural Network - Training Logs Viewer</h1>
+    </header>
+    
+    <main>
+        <div class="container">
+            <div class="sidebar">
+                <h2>Training Logs</h2>
+                <div id="log-selector">
+                    <select id="log-directory">
+                        <option value="">Select a log directory...</option>
+                    </select>
+                </div>
+                <div id="epoch-selector" class="hidden">
+                    <h3>Epoch</h3>
+                    <input type="range" id="epoch-slider" min="0" max="1000" step="100" value="0">
+                    <div id="epoch-display">Epoch: 0</div>
+                </div>
+            </div>
+            
+            <div class="content">
+                <div class="tabs">
+                    <button class="tab-button active" data-tab="loss-tab">Loss Curve</button>
+                    <button class="tab-button" data-tab="weights-tab">Network Weights</button>
+                    <button class="tab-button" data-tab="performance-tab">Performance</button>
+                </div>
+                
+                <div class="tab-content">
+                    <div id="loss-tab" class="tab-pane active">
+                        <h2>Loss Curve</h2>
+                        <div class="chart-container">
+                            <canvas id="loss-chart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div id="weights-tab" class="tab-pane">
+                        <h2>Network Weights Visualization</h2>
+                        <div class="network-container">
+                            <div id="network-visualization"></div>
+                            <div class="comparison-controls">
+                                <button id="compare-button">Compare with Next Epoch</button>
+                                <div id="comparison-view" class="hidden">
+                                    <h3>Changes in Weights</h3>
+                                    <div id="weight-changes"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="performance-tab" class="tab-pane">
+                        <h2>Network Performance</h2>
+                        <div class="performance-container">
+                            <div class="plot-container">
+                                <h3>Expected Function</h3>
+                                <canvas id="expected-plot"></canvas>
+                            </div>
+                            <div class="plot-container">
+                                <h3>Network Prediction</h3>
+                                <canvas id="prediction-plot"></canvas>
+                            </div>
+                            <div class="plot-container">
+                                <h3>Absolute Error</h3>
+                                <canvas id="error-plot"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <footer>
+        <p>Ring Neural Network - Training Logs Viewer</p>
+    </footer>
+    
+    <script src="app.js"></script>
+</body>
+</html> 

@@ -1,0 +1,12 @@
+{
+  "name": "ring-nn-training-logs-viewer",
+  "version": "1.0.0",
+  "description": "A web application for viewing and inspecting Ring Neural Network training logs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {}
+} 
