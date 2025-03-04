@@ -34,20 +34,22 @@ impl Fixed32 {
         Fixed32(result as u32)
     }
     
-    /// Add two fixed-point numbers (with saturation)
+    /// Add two fixed-point numbers
     pub fn add(self, other: Self) -> Self {
         Fixed32(self.0.wrapping_add(other.0))
     }
     
-    /// Subtract two fixed-point numbers (with saturation)
+    /// Subtract two fixed-point numbers
     pub fn sub(self, other: Self) -> Self {
         Fixed32(self.0.wrapping_sub(other.0))
     }
 
+    /// Distance between two fixed-point numbers, between 0 and 0.5
     pub fn dist(self, other: Self) -> Self {
         Fixed32((self - other).0.min((other - self).0))
     }
 
+    /// Similarity between two fixed-point numbers, between 0 and 1
     pub fn similarity(self, other: Self) -> Self {
         Fixed32::ONE - Fixed32(self.dist(other).0 * 2)
     }

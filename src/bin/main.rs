@@ -2,6 +2,7 @@ use ring_nn::{Fixed32, RingNetwork, optimizer, loss, visualization};
 use ring_nn::optimizer::Optimizer;
 use ring_nn::loss::Loss;
 
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Define problem parameters
     let size = 3;
@@ -36,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create an optimizer (demonstrate both SGD and Adam)
     println!("\nTraining with SGD:");
     let mut network_sgd = network.clone();
-    let mut sgd_optimizer = optimizer::SGD::new(0.01);
+    let mut sgd_optimizer = optimizer::SGD::new(0.02);
     
     // Train with SGD
     let sgd_losses = train_with_optimizer(
@@ -44,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &data,
         &targets,
         2,
-        50,
+        100,
         &mut sgd_optimizer,
     );
     
@@ -54,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Now train with Adam
     println!("\nTraining with Adam:");
     let mut network_adam = network.clone();
-    let mut adam_optimizer = optimizer::Adam::new(0.01, 0.9, 0.999, 1e-8);
+    let mut adam_optimizer = optimizer::Adam::new(0.005, 0.9, 0.999, 1e-8);
     
     // Train with Adam
     let adam_losses = train_with_optimizer(
@@ -62,7 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &data,
         &targets,
         2,
-        50,
+        100,
         &mut adam_optimizer,
     );
     
@@ -97,6 +98,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     Ok(())
 }
+
 
 /// Train using a generic optimizer
 fn train_with_optimizer<T: Optimizer>(
@@ -157,4 +159,4 @@ fn train_with_optimizer<T: Optimizer>(
     }
     
     losses
-} 
+}

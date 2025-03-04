@@ -1,6 +1,7 @@
 use crate::Fixed32;
 use rand::Rng;
 
+
 /// A layer in the Ring Neural Network
 pub struct RingLayer {
     /// Number of neurons
@@ -15,6 +16,7 @@ pub struct RingLayer {
     pub(crate) alpha_gradients: Vec<f32>,
 }
 
+
 /// Store inputs and intermediate values needed for backpropagation
 #[derive(Clone)]
 pub struct ForwardCache {
@@ -22,6 +24,7 @@ pub struct ForwardCache {
     pub(crate) intermediate_products: Vec<Vec<Fixed32>>,
     pub(crate) final_products: Vec<Fixed32>,
 }
+
 
 impl Clone for RingLayer {
     fn clone(&self) -> Self {
@@ -34,6 +37,7 @@ impl Clone for RingLayer {
         }
     }
 }
+
 
 impl RingLayer {
     /// Create a new RingLayer with random initialization
@@ -137,6 +141,7 @@ impl RingLayer {
         (output, cache)
     }
 }
+
 
 impl RingLayer {
     /// Backward pass using the chain rule

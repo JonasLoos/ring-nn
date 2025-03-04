@@ -95,16 +95,17 @@ impl Optimizer for Adam {
                     let v_hat = self.v_weights[layer_idx][i][j] / (1.0 - self.beta2.powi(self.t as i32));
                     
                     // Calculate update
-                    let update = (self.learning_rate * m_hat / (v_hat.sqrt() + self.epsilon)) as i32;
-                    
+                    let update = self.learning_rate * m_hat / (v_hat.sqrt() + self.epsilon);
+                    if update.abs() > 0.5 {
+                        println!("Warning: Update value {} is too large for Fixed32", update);
+                    }
+                    let update_fixed = Fixed32::from_float(update.abs().clamp(0.0, 0.5)).unwrap();
+
                     // Apply update with Fixed32 methods instead of wrapping
-                    if update > 0 {
-                        let update_fixed = Fixed32::from_float(update as f32 / u32::MAX as f32).unwrap_or(Fixed32::ZERO);
-                        layer.weights[i][j] = layer.weights[i][j] + update_fixed;
+                    if update > 0.0 {
+                        layer.weights[i][j] -= update_fixed;
                     } else {
-                        let abs_update = update.unsigned_abs() as f32 / u32::MAX as f32;
-                        let update_fixed = Fixed32::from_float(abs_update).unwrap_or(Fixed32::ZERO);
-                        layer.weights[i][j] = layer.weights[i][j] - update_fixed;
+                        layer.weights[i][j] += update_fixed;
                     }
                     
                     // Reset gradient
