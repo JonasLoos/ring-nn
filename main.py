@@ -16,7 +16,7 @@ class Tensor:
         self._prev = set()
 
     def reset_grad(self):
-        self._grad = np.zeros_like(self.data, dtype=self.dtype) if self._rg else None
+        self._grad = np.zeros_like(self.data, dtype=np.float32) if self._rg else None
 
     def __add__(self, other: Self) -> Self:
         out = Tensor(self.data + other.data, requires_grad=self._rg or other._rg)
@@ -57,7 +57,7 @@ class Tensor:
                     scaled_grad_values = out._grad.astype(np.float32) / num_elements_averaged
                     # Create the full gradient contribution by broadcasting
                     grad_contribution_float = np.full(self.data.shape, scaled_grad_values, dtype=np.float32)
-                    self._grad = self._grad + grad_contribution_float.astype(self.dtype)
+                    self._grad = self._grad + grad_contribution_float
         out._backward = _backward
         return out
     
@@ -72,7 +72,11 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + out._grad * (np.cos(self.data.astype(np.float32) / 256 * np.pi) * 128).clip(-128, 127).astype(np.int8)
+                # Calculate the local gradient, keeping it as float
+                local_grad = (np.cos(self.data.astype(np.float32) / 256 * np.pi) * 128 / 256 * np.pi) # Derivative of sin(x * C1) * C2 is cos(x * C1) * C1 * C2
+                # The original forward pass was (np.sin(self.data.astype(np.float32) / 256 * np.pi) * 128)
+                # So C1 = np.pi / 256, C2 = 128. Derivative: cos(self.data * C1) * C1 * C2
+                self._grad = self._grad + out._grad * local_grad
         out._backward = _backward
         return out
 
@@ -86,7 +90,7 @@ class Tensor:
                     build_topo(child)
                 topo.append(t)
         build_topo(self)
-        self._grad = np.ones_like(self.data)
+        self._grad = np.ones_like(self.data, dtype=np.float32)
         for node in reversed(topo):
             node._backward()
 
@@ -301,10 +305,10 @@ def ring_nn():
                 avg_grandient_change = 0
                 loss.backward()
                 for w in weights:
-                    w.data = w.data - w._grad // 100
-                    print(w._grad)
-                    print(w._grad.astype(np.float32).sum() / 100 / np.prod(w.shape))
-                    avg_grandient_change += w._grad.astype(np.float32).sum() / 100 / np.prod(w.shape)
+                    w.data = w.data - w._grad / 100
+                    # print(w._grad)
+                    print(w._grad.sum() / 100 / np.prod(w.shape))
+                    avg_grandient_change += w._grad.sum() / 100 / np.prod(w.shape)
                     w.reset_grad()
                 avg_grandient_change /= len(weights)
                 print(f"[{i:05}/{len(x_train)}]: loss: {loss.data.item():5} | Avg. gradient change: {avg_grandient_change}")
