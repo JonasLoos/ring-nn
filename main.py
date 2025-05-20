@@ -6,6 +6,8 @@ import os
 
 class Tensor:
     dtype = np.int8
+    min_value = -128
+    max_value = 127
 
     def __init__(self, data, requires_grad=False):
         self.data = np.array(data, dtype=self.dtype)
@@ -60,23 +62,35 @@ class Tensor:
                     self._grad = self._grad + grad_contribution_float
         out._backward = _backward
         return out
-    
+
+    def __sub__(self, other: Self) -> Self:
+        return self + (-other)
     
     def __neg__(self) -> Self:
-        return self + Tensor(np.full_like(self.data, 128))
+        return self + Tensor(np.full_like(self.data, self.min_value))
     
     def sin(self) -> Self:
-        # TODO: use ((sin(x/256*pi-pi/2) + 1) * -(x>0) * 128).clip(-128, 127), i.e. double sigmoid-like activation
-        out = Tensor((np.sin(self.data.astype(np.float32) / 256 * np.pi) * 128).clip(-128, 127), requires_grad=self._rg)
+        # double sigmoid-like activation
+        x = self.data.astype(np.float32) / (self.max_value - self.min_value)
+        activation = ((np.sin(x*np.pi - np.pi/2) + 1) * np.sign(x) * self.max_value).clip(self.min_value, self.max_value)
+        out = Tensor(activation, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                # Calculate the local gradient, keeping it as float
-                local_grad = (np.cos(self.data.astype(np.float32) / 256 * np.pi) * 128 / 256 * np.pi) # Derivative of sin(x * C1) * C2 is cos(x * C1) * C1 * C2
-                # The original forward pass was (np.sin(self.data.astype(np.float32) / 256 * np.pi) * 128)
-                # So C1 = np.pi / 256, C2 = 128. Derivative: cos(self.data * C1) * C1 * C2
+                x = self.data.astype(np.float32)
+                local_grad = (np.cos(x*np.pi - np.pi/2) * np.pi * np.sign(x) * 0.5)
                 self._grad = self._grad + out._grad * local_grad
+        out._backward = _backward
+        return out
+    
+    def abs(self) -> Self:
+        out = Tensor(np.abs(self.data), requires_grad=self._rg)
+        out._prev = {self}
+
+        def _backward():
+            if self._rg:
+                self._grad = self._grad + out._grad * np.sign(self.data)
         out._backward = _backward
         return out
 
@@ -99,7 +113,7 @@ class Tensor:
 
     @classmethod
     def rand(cls, shape, requires_grad=False):
-        return cls(np.random.randint(-128, 127, size=shape, dtype=cls.dtype), requires_grad=requires_grad)
+        return cls(np.random.randint(cls.min_value, cls.max_value, size=shape, dtype=cls.dtype), requires_grad=requires_grad)
 
     @property
     def shape(self):
@@ -261,14 +275,17 @@ def test_reshape():
 def ring_nn():
     # create a ring network to solve mnist
     weights = [
-        Tensor.rand((784, 100), requires_grad=True),
-        Tensor.rand((100, 100), requires_grad=True),
-        Tensor.rand((100, 10), requires_grad=True),
+        # Tensor.rand((784, 100), requires_grad=True),
+        # Tensor.rand((100, 100), requires_grad=True),
+        # Tensor.rand((100, 10), requires_grad=True),
+
+        Tensor.rand((784, 10), requires_grad=True),
     ]
+    
 
     def nn(x):
         for w in weights:
-            x = (x + w).sin().mean(axis=0).reshape((-1, 1))
+            x = (x - w).sin().mean(axis=0).reshape((-1, 1))
         return x
 
     # Download MNIST dataset if not already present
@@ -286,7 +303,7 @@ def ring_nn():
         result = []
         for y in data:
             tmp = np.zeros((10, 1))
-            tmp[y, 0] = -128
+            tmp[y, 0] = Tensor.min_value
             result.append(Tensor(tmp))
         return result
 
@@ -294,21 +311,23 @@ def ring_nn():
     x_train, y_train = convert_x(data['x_train']), convert_y(data['y_train'])
     x_test, y_test = convert_x(data['x_test']), convert_y(data['y_test'])
 
+    lr = 100000000
+
     for epoch in range(10):
         print("-" * 100)
         print(f"Epoch {epoch}")
         print("-" * 100)
         loss = Tensor([0])
         for i, (x, y) in enumerate(zip(x_train, y_train)):
-            loss = (nn(x) + y).sum()
+            loss = (nn(x) - y).sum().abs()
             if i % 500 == 0:
                 avg_grandient_change = 0
                 loss.backward()
                 for w in weights:
-                    w.data = w.data - w._grad / 100
+                    w.data = w.data + w._grad * lr
                     # print(w._grad)
-                    print(w._grad.sum() / 100 / np.prod(w.shape))
-                    avg_grandient_change += w._grad.sum() / 100 / np.prod(w.shape)
+                    # print(np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape))
+                    avg_grandient_change += np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape)
                     w.reset_grad()
                 avg_grandient_change /= len(weights)
                 print(f"[{i:05}/{len(x_train)}]: loss: {loss.data.item():5} | Avg. gradient change: {avg_grandient_change}")
@@ -317,7 +336,7 @@ def ring_nn():
         # Test on validation set
         test_loss = Tensor([0])
         for x, y in zip(x_test, y_test):
-            test_loss = test_loss + (nn(x) + y).sum()
+            test_loss = test_loss + (nn(x) - y).sum().abs()
         print(f"\nTest loss: {test_loss.data.item()}")
 
 
