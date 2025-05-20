@@ -49,9 +49,9 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + Tensor._unbroadcast_gradient(out._grad, self.data.shape)
+                self._grad += Tensor._unbroadcast_gradient(out._grad, self.data.shape)
             if other._rg:
-                other._grad = other._grad + Tensor._unbroadcast_gradient(out._grad, other.data.shape)
+                other._grad += Tensor._unbroadcast_gradient(out._grad, other.data.shape)
         out._backward = _backward
         return out
 
@@ -100,7 +100,7 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                self._grad = self._grad - out._grad
+                self._grad += out._grad
         out._backward = _backward
         return out
 
@@ -190,7 +190,7 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad - out._grad
+                self._grad += out._grad
         out._backward = _backward
         return out
 
@@ -200,7 +200,7 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + out._grad * 2 * self.data.astype(np.float32) * np.sign(self.data)
+                self._grad += out._grad * 2 * self.data.astype(np.float32) * np.sign(self.data)
         out._backward = _backward
         return out
 
@@ -215,7 +215,7 @@ class RingTensor(Tensor):
             if self._rg:
                 x = self.data.astype(np.float32)
                 local_grad = np.cos(x*np.pi - np.pi/2) * np.pi * np.sign(x) * 0.5
-                self._grad = self._grad + out._grad * local_grad
+                self._grad += out._grad * local_grad
         out._backward = _backward
         return out
 
@@ -254,7 +254,7 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + out._grad
+                self._grad += out._grad
         out._backward = _backward
         return out
 
@@ -271,7 +271,9 @@ class RealTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + out._grad * other.data
+                self._grad += out._grad * other.data
+            if other._rg:
+                other._grad += out._grad * self.data
         out._backward = _backward
         return out
     
@@ -285,7 +287,9 @@ class RealTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + out._grad * other.data * self.data ** (other.data - 1)
+                self._grad += out._grad * other.data * self.data ** (other.data - 1)
+            if other._rg:
+                other._grad += out._grad * np.log(self.data) * self.data ** other.data
         out._backward = _backward
         return out
     
@@ -298,7 +302,7 @@ class RealTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad + out._grad * np.sign(self.data)
+                self._grad += out._grad * np.sign(self.data)
         out._backward = _backward
         return out
 
@@ -308,7 +312,9 @@ class RealTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad = self._grad - other.data / self.data
+                self._grad += -other.data / self.data
+            if other._rg:
+                other._grad += np.log(self.data)
         out._backward = _backward
         return out
 
@@ -376,7 +382,7 @@ def train(nn, epochs, lr, lr_decay):
         for i, (x, y) in enumerate(zip(x_train, y_train)):
             # loss = loss + (nn(x) - y).square().abs().mean()
             # loss = loss + nn(x).cross_entropy(y)
-            loss = loss + ((nn(x) - 127*y).abs() * (1 + 9*y)).mean()  # balanced loss
+            loss = loss + ((nn(x) - RingTensor.max_value*y).abs() * (1 + 9*y)).mean()  # balanced loss
             accuracy += nn(x).data.argmax() == y.abs().data.argmax()
             if i % 500 == 0:
                 avg_grandient_change = 0
@@ -407,7 +413,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=1e+1, lr_decay=0.99)
+        train(nn, epochs=10, lr=1e+5, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
