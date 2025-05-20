@@ -92,7 +92,7 @@ class Tensor:
         def _backward():
             if self._rg:
                 x = self.data.astype(np.float32)
-                local_grad = (np.cos(x*np.pi - np.pi/2) * np.pi * np.sign(x) * 0.5)
+                local_grad = np.cos(x*np.pi - np.pi/2) * np.pi * np.sign(x) * 0.5
                 self._grad = self._grad + out._grad * local_grad
         out._backward = _backward
         return out
@@ -108,7 +108,6 @@ class Tensor:
         return out
 
     def softmin(self, axis=0) -> Self:
-        # ---------- forward ----------
         abs_x = np.abs(self.data.astype(np.float32))              # |x|
         S     = abs_x.sum(axis=axis, keepdims=True)               # Σ|x|
         n     = abs_x / S                                         # normalised |x|
@@ -116,21 +115,16 @@ class Tensor:
         Z     = exp_n.sum(axis=axis, keepdims=True)
         y     = exp_n / Z                                         # soft-min
         out   = Tensor((y * self.max_value).clip(self.min_value, self.max_value).astype(self.dtype), requires_grad=self._rg)
-
-        # store everything needed for grad
-        cache = (abs_x, y, S, axis)
         out._prev = {self}
 
-        # ---------- backward ----------
         def _backward():
             if self._rg:
-                abs_x, y, S, ax = cache
-                g_y  = out._grad.astype(np.float32) * self.max_value   # dL/dy
+                g_y  = out._grad.astype(np.float32) / self.max_value   # dL/dy
 
-                dot  = np.sum(g_y * y, axis=ax, keepdims=True)
+                dot  = np.sum(g_y * y, axis=axis, keepdims=True)
                 g_n  = y * (dot - g_y)                                 # dL/dn
 
-                dot_a = np.sum(g_n * abs_x, axis=ax, keepdims=True)
+                dot_a = np.sum(g_n * abs_x, axis=axis, keepdims=True)
                 g_abs = (S * g_n - dot_a) / (S * S)                    # dL/d|x|
 
                 self._grad += g_abs * np.sign(self.data)               # back through |·|
@@ -258,7 +252,7 @@ def load_mnist():
     return x_train, y_train, x_test, y_test
 
 
-def train(nn, lr=100000000, epochs=10):
+def train(nn, lr=1e18, epochs=10):
     x_train, y_train, x_test, y_test = load_mnist()
 
     for epoch in range(epochs):
