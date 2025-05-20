@@ -2,6 +2,12 @@ import numpy as np
 from typing import Self
 import urllib.request
 import os
+import pickle
+
+
+def default_tensor_backward_op():
+    """Default backward operation for a Tensor, does nothing."""
+    pass
 
 
 class Tensor:
@@ -14,7 +20,7 @@ class Tensor:
         self._rg = requires_grad
         self._grad = None
         self.reset_grad()
-        self._backward = lambda: None
+        self._backward = default_tensor_backward_op
         self._prev = set()
 
     def reset_grad(self):
@@ -163,29 +169,15 @@ class Tensor:
         return np.reshape(processed_grad, original_input_shape)
 
 
-def ring_nn():
-    # create a ring network to solve mnist
-    weights = [
-        # Tensor.rand((784, 100), requires_grad=True),
-        # Tensor.rand((100, 100), requires_grad=True),
-        # Tensor.rand((100, 10), requires_grad=True),
-
-        Tensor.rand((784, 10), requires_grad=True),
-    ]
-    
-
-    def nn(x):
-        for w in weights:
-            x = (x - w).sin().mean(axis=0).reshape((-1, 1))
-        return x
-
-    # Download MNIST dataset if not already present
+def load_mnist():
     mnist_url = 'https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz'
     mnist_path = 'mnist.npz'
     
     if not os.path.exists(mnist_path):
         print("Downloading MNIST dataset...")
         urllib.request.urlretrieve(mnist_url, mnist_path)
+
+    data = np.load(mnist_path)
 
     def convert_x(data):
         return [Tensor(x).reshape((784, 1)) for x in data]
@@ -198,13 +190,16 @@ def ring_nn():
             result.append(Tensor(tmp))
         return result
 
-    data = np.load(mnist_path)
     x_train, y_train = convert_x(data['x_train']), convert_y(data['y_train'])
     x_test, y_test = convert_x(data['x_test']), convert_y(data['y_test'])
 
-    lr = 100000000
+    return x_train, y_train, x_test, y_test
 
-    for epoch in range(10):
+
+def train(nn, lr=100000000, epochs=10):
+    x_train, y_train, x_test, y_test = load_mnist()
+
+    for epoch in range(epochs):
         print("-" * 100)
         print(f"Epoch {epoch}")
         print("-" * 100)
@@ -214,13 +209,13 @@ def ring_nn():
             if i % 500 == 0:
                 avg_grandient_change = 0
                 loss.backward()
-                for w in weights:
+                for w in nn.weights:
                     w.data = w.data + w._grad * lr
                     # print(w._grad)
                     # print(np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape))
                     avg_grandient_change += np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape)
                     w.reset_grad()
-                avg_grandient_change /= len(weights)
+                avg_grandient_change /= len(nn.weights)
                 print(f"[{i:05}/{len(x_train)}]: loss: {loss.data.item():5} | Avg. gradient change: {avg_grandient_change}")
                 loss = Tensor([0])
 
@@ -229,6 +224,39 @@ def ring_nn():
         for x, y in zip(x_test, y_test):
             test_loss = test_loss + (nn(x) - y).sum().abs()
         print(f"\nTest loss: {test_loss.data.item()}")
+
+
+class RingNN:
+    def __init__(self, sizes):
+        self.weights = [Tensor.rand((sizes[i], sizes[i+1]), requires_grad=True) for i in range(len(sizes) - 1)]
+
+    def __call__(self, x):
+        for w in self.weights:
+            x = (x - w).sin().mean(axis=0).reshape((-1, 1))
+        return x
+
+    def save(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self.weights, f)
+
+    @staticmethod
+    def load(path):
+        with open(path, 'rb') as f:
+            weights = pickle.load(f)
+        nn = RingNN([w.shape[0] for w in weights] + [weights[-1].shape[1]])
+        nn.weights = weights
+        return nn
+
+
+def ring_nn():
+    nn = RingNN([784, 100, 100, 10])
+    try:
+        train(nn, lr=100000000, epochs=10)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        print("Saving model...")
+        nn.save('ring_nn.pkl')
 
 
 if __name__ == '__main__':
