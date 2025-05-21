@@ -139,7 +139,7 @@ class Tensor:
                 self._grad = self._grad + out._grad.reshape(self.data.shape)
         out._backward = _backward
         return out
-    
+
     def unsqueeze(self, axis):
         out = self.__class__(np.expand_dims(self.data, axis=axis), requires_grad=self._rg)
         out._prev = {self}
@@ -149,7 +149,7 @@ class Tensor:
                 self._grad += np.squeeze(out._grad, axis=axis)
         out._backward = _backward
         return out
-    
+
     def squeeze(self, axis):
         out = self.__class__(np.squeeze(self.data, axis=axis), requires_grad=self._rg)
         out._prev = {self}
@@ -159,7 +159,7 @@ class Tensor:
                 self._grad += np.expand_dims(out._grad, axis=axis)
         out._backward = _backward
         return out
-    
+
     @classmethod
     def stack(cls, *tensors, axis=0):
         out = cls(np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
@@ -315,7 +315,7 @@ class RealTensor(Tensor):
                 other._grad += out._grad * self.data
         out._backward = _backward
         return out
-    
+
     def __rmul__(self, other: Selflike) -> Self:
         return self * other
 
@@ -331,7 +331,7 @@ class RealTensor(Tensor):
                 other._grad += out._grad * np.log(self.data) * self.data ** other.data
         out._backward = _backward
         return out
-    
+
     def __rpow__(self, other: Selflike) -> Self:
         return other ** self
 
@@ -452,7 +452,7 @@ def ring_nn():
     except KeyboardInterrupt:
         pass
     finally:
-        print("Saving model...")
+        print("\nSaving model...")
         nn.save('ring_nn.pkl')
 
 
