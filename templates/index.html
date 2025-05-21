@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Training Log Visualization</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
+    <style>
+        body { padding-top: 20px; }
+        .plot-container { margin-bottom: 30px; }
+        .controls { margin-bottom: 20px; }
+        #gradient-plot-container { height: 500px; }
+        .axis-label-input {
+            width: 150px;
+            margin-left: 5px;
+            margin-right: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <h1 class="text-center">Training Log Visualization</h1>
+
+        <div id="loading-message" class="alert alert-info">Loading data...</div>
+        <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+
+        <div id="dashboard-content" style="display: none;">
+            <!-- Overview Plots -->
+            <div class="row">
+                <div class="col-md-6">
+                    <div id="loss-plot" class="plot-container"></div>
+                </div>
+                <div class="col-md-6">
+                    <div id="accuracy-plot" class="plot-container"></div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div id="lr-plot" class="plot-container"></div>
+                </div>
+                <div class="col-md-6">
+                    <div id="update-ratio-plot" class="plot-container"></div>
+                </div>
+            </div>
+
+            <hr>
+
+            <!-- Interactive Gradient Exploration -->
+            <h2 class="text-center">Gradient Explorer</h2>
+            <div class="controls row">
+                <div class="col-md-3">
+                    <label for="epoch-slider">Epoch:</label>
+                    <input type="range" id="epoch-slider" class="form-control-range" min="0" max="0" step="1" value="0">
+                    <span id="epoch-value">Epoch: 0</span>
+                </div>
+                <div class="col-md-3">
+                    <label for="batch-slider">Batch:</label>
+                    <input type="range" id="batch-slider" class="form-control-range" min="0" max="0" step="1" value="0">
+                    <span id="batch-value">Batch: 0</span>
+                </div>
+                <div class="col-md-3">
+                    <label for="layer-select">Layer:</label>
+                    <select id="layer-select" class="form-control"></select>
+                </div>
+                 <div class="col-md-3">
+                    <label for="value-type-select">Value Type:</label>
+                    <select id="value-type-select" class="form-control">
+                        <option value="weights">Weights</option>
+                        <option value="updates_final">Gradient Updates (Final)</option>
+                        <option value="updates_float">Gradient Updates (Float)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12">
+                    <div id="gradient-plot-container" class="plot-container"></div>
+                </div>
+            </div>
+             <div class="row controls">
+                <div class="col-md-12">
+                    <p><strong>Weight/Gradient Value at selected coordinate:</strong> <span id="selected-gradient-value">N/A</span></p>
+                    <p>Select x, y, (z) axis for the heatmap. For 2D weights, only x and y are used. For 1D, only x.</p>
+                    <label for="dim-x-select">X-axis:</label>
+                    <select id="dim-x-select" class="form-control-sm"></select>
+                    <label for="dim-y-select">Y-axis:</label>
+                    <select id="dim-y-select" class="form-control-sm"></select>
+                    <label for="dim-z-select">Z-axis (for slicing >2D data):</label>
+                    <select id="dim-z-select" class="form-control-sm"></select>
+                    <input type="number" id="z-slice-input" class="form-control-sm" value="0" title="Slice index for Z-axis">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let trainLogs = [];
+        let uniqueEpochs = [];
+        let batchesPerEpoch = {}; // Stores how many batches are in each epoch
+        let maxBatches = 0; // Max batches in any epoch, for slider
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/data');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+                trainLogs = await response.json();
+
+                if (!trainLogs || trainLogs.length === 0) {
+                    document.getElementById('loading-message').textContent = 'No training data found.';
+                    return;
+                }
+
+                document.getElementById('loading-message').style.display = 'none';
+                document.getElementById('dashboard-content').style.display = 'block';
+
+                // Process data for selectors and plot ranges
+                const epochs = new Set();
+                trainLogs.forEach(log => {
+                    epochs.add(log.epoch);
+                    if (!batchesPerEpoch[log.epoch]) {
+                        batchesPerEpoch[log.epoch] = 0;
+                    }
+                    batchesPerEpoch[log.epoch]++;
+                });
+                uniqueEpochs = Array.from(epochs).sort((a, b) => a - b);
+                maxBatches = Math.max(...Object.values(batchesPerEpoch)) -1; // 0-indexed
+
+                plotOverviewCharts();
+                setupGradientExplorer();
+                plotGradientHeatmap(); // Initial plot
+
+            } catch (error) {
+                console.error('Error loading or processing data:', error);
+                document.getElementById('loading-message').style.display = 'none';
+                const errorDiv = document.getElementById('error-message');
+                errorDiv.textContent = `Error: ${error.message}`;
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        function getLogEntry(epoch, batch_idx_in_epoch) {
+            return trainLogs.find(log => log.epoch === epoch && log.i === batch_idx_in_epoch);
+        }
+
+        function plotOverviewCharts() {
+            const iterations = Array.from({ length: trainLogs.length }, (_, i) => i);
+            const losses = trainLogs.map(log => log.loss);
+            const accuracies = trainLogs.map(log => log.accuracy);
+            const lrs = trainLogs.map(log => log.lr);
+            const updateRatios = trainLogs.map(log => 
+                log.abs_update_float > 0 ? log.abs_update_final / log.abs_update_float : 0
+            );
+
+            Plotly.newPlot('loss-plot', [{
+                x: iterations,
+                y: losses,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Loss'
+            }], { title: 'Training Loss vs. Iteration', xaxis: {title: 'Iteration'}, yaxis: {title: 'Loss'} });
+
+            Plotly.newPlot('accuracy-plot', [{
+                x: iterations,
+                y: accuracies,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Accuracy'
+            }], { title: 'Training Accuracy vs. Iteration', xaxis: {title: 'Iteration'}, yaxis: {title: 'Accuracy', tickformat: '.0%'} });
+
+            Plotly.newPlot('lr-plot', [{
+                x: iterations,
+                y: lrs,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Learning Rate'
+            }], { title: 'Learning Rate vs. Iteration', xaxis: {title: 'Iteration'}, yaxis: {title: 'Learning Rate', type: 'log'} });
+
+            Plotly.newPlot('update-ratio-plot', [{
+                x: iterations,
+                y: updateRatios,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Update Ratio (Final/Float)'
+            }], { title: 'Avg. Update Ratio vs. Iteration', xaxis: {title: 'Iteration'}, yaxis: {title: 'abs_update_final / abs_update_float'} });
+        }
+
+        function setupGradientExplorer() {
+            const epochSlider = document.getElementById('epoch-slider');
+            const epochValueSpan = document.getElementById('epoch-value');
+            const batchSlider = document.getElementById('batch-slider');
+            const batchValueSpan = document.getElementById('batch-value');
+            const layerSelect = document.getElementById('layer-select');
+            const valueTypeSelect = document.getElementById('value-type-select');
+            const dimXSelect = document.getElementById('dim-x-select');
+            const dimYSelect = document.getElementById('dim-y-select');
+            const dimZSelect = document.getElementById('dim-z-select');
+            const zSliceInput = document.getElementById('z-slice-input');
+            const gradientPlotDiv = document.getElementById('gradient-plot-container');
+
+            // Initialize the gradient plot container as an empty Plotly graph
+            // so that Plotly methods like .on() are available on the div.
+            Plotly.newPlot(gradientPlotDiv, [], {}, {staticPlot: true}); // staticPlot true for empty init
+
+            if (uniqueEpochs.length > 0) {
+                epochSlider.min = uniqueEpochs[0];
+                epochSlider.max = uniqueEpochs[uniqueEpochs.length - 1];
+                epochSlider.value = uniqueEpochs[0];
+                epochValueSpan.textContent = `Epoch: ${uniqueEpochs[0]}`;
+
+                batchSlider.min = 0;
+                batchSlider.max = batchesPerEpoch[uniqueEpochs[0]] - 1;
+                batchSlider.value = 0;
+                batchValueSpan.textContent = `Batch: 0/${batchesPerEpoch[uniqueEpochs[0]] -1}`;
+            }
+
+            const firstLog = trainLogs[0];
+            if (firstLog && firstLog.weights) {
+                firstLog.weights.forEach((_, i) => {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = `Layer ${i}`;
+                    layerSelect.appendChild(option);
+                });
+            }
+
+            epochSlider.addEventListener('input', (e) => {
+                const selectedEpoch = parseInt(e.target.value);
+                epochValueSpan.textContent = `Epoch: ${selectedEpoch}`;
+                batchSlider.max = batchesPerEpoch[selectedEpoch] - 1;
+                if (parseInt(batchSlider.value) > parseInt(batchSlider.max)) {
+                    batchSlider.value = batchSlider.max;
+                }
+                batchValueSpan.textContent = `Batch: ${batchSlider.value}/${batchSlider.max}`;
+                plotGradientHeatmap();
+            });
+
+            batchSlider.addEventListener('input', (e) => {
+                const selectedEpoch = parseInt(epochSlider.value);
+                batchValueSpan.textContent = `Batch: ${e.target.value}/${batchesPerEpoch[selectedEpoch] -1}`;
+                plotGradientHeatmap();
+            });
+
+            layerSelect.addEventListener('change', plotGradientHeatmap);
+            valueTypeSelect.addEventListener('change', plotGradientHeatmap);
+            dimXSelect.addEventListener('change', plotGradientHeatmap);
+            dimYSelect.addEventListener('change', plotGradientHeatmap);
+            dimZSelect.addEventListener('change', plotGradientHeatmap);
+            zSliceInput.addEventListener('change', plotGradientHeatmap);
+
+            gradientPlotDiv.on('plotly_click', function(data){
+                if (data.points.length > 0) {
+                    const point = data.points[0];
+                    const zValue = point.z;
+                    const xCoord = point.x;
+                    const yCoord = point.y;
+                    document.getElementById('selected-gradient-value').textContent = 
+                        `${zValue.toExponential(3)} at (x=${xCoord}, y=${yCoord})`
+                }
+            });
+        }
+
+        function getArrayShape(arr) {
+            if (!Array.isArray(arr)) return [];
+            const shape = [];
+            let current = arr;
+            while (Array.isArray(current)) {
+                shape.push(current.length);
+                current = current[0]; 
+            }
+            return shape;
+        }
+        
+        // Helper to get a value from a potentially nested array using a path of indices
+        function getNestedValue(arr, pathIndices) {
+            let val = arr;
+            for (const index of pathIndices) {
+                if (val === undefined || !Array.isArray(val) || index >= val.length) return undefined;
+                val = val[index];
+            }
+            return val;
+        }
+
+        function plotGradientHeatmap() {
+            const epoch = parseInt(document.getElementById('epoch-slider').value);
+            const batchIdx = parseInt(document.getElementById('batch-slider').value);
+            const layerIndex = parseInt(document.getElementById('layer-select').value);
+            const valueType = document.getElementById('value-type-select').value; // 'weights', 'updates_final', 'updates_float'
+            
+            const logEntry = getLogEntry(epoch, batchIdx);
+            if (!logEntry || !logEntry[valueType] || !logEntry[valueType][layerIndex]) {
+                Plotly.purge('gradient-plot-container');
+                document.getElementById('gradient-plot-container').innerHTML = '<div class="alert alert-warning">Data not available for this selection.</div>';
+                document.getElementById('selected-gradient-value').textContent = 'N/A';
+                return;
+            }
+
+            let dataToPlot = logEntry[valueType][layerIndex];
+            const shape = getArrayShape(dataToPlot);
+
+            const dimXSelect = document.getElementById('dim-x-select');
+            const dimYSelect = document.getElementById('dim-y-select');
+            const dimZSelect = document.getElementById('dim-z-select');
+            const zSliceInput = document.getElementById('z-slice-input');
+
+            // Populate dimension selectors if not already populated or if shape changed
+            if (dimXSelect.options.length !== shape.length || parseInt(dimXSelect.options[0]?.value) !== 0) {
+                [dimXSelect, dimYSelect, dimZSelect].forEach(sel => sel.innerHTML = '');
+                shape.forEach((_, i) => {
+                    [dimXSelect, dimYSelect, dimZSelect].forEach(sel => {
+                        const opt = document.createElement('option');
+                        opt.value = i;
+                        opt.textContent = `Dim ${i} (size ${shape[i]})`;
+                        sel.appendChild(opt);
+                    });
+                });
+                if (shape.length > 0) dimXSelect.value = "0";
+                if (shape.length > 1) dimYSelect.value = "1"; else if (shape.length === 1) dimYSelect.disabled = true;
+                if (shape.length > 2) dimZSelect.value = "2"; else dimZSelect.disabled = true;
+            }
+
+            dimYSelect.disabled = shape.length < 2;
+            dimZSelect.disabled = shape.length < 3;
+            zSliceInput.disabled = shape.length < 3;
+
+            let xDim = parseInt(dimXSelect.value) || 0;
+            let yDim = shape.length > 1 ? (parseInt(dimYSelect.value) || 1) : -1; // -1 if no yDim
+            let zDim = shape.length > 2 ? (parseInt(dimZSelect.value) || 2) : -1; // -1 if no zDim (slicing dim)
+            let zSliceIdx = shape.length > 2 ? parseInt(zSliceInput.value) : 0;
+
+            // Ensure selected dims are unique and valid
+            const selectedDims = new Set();
+            if (xDim >=0 && xDim < shape.length) selectedDims.add(xDim);
+            if (yDim >=0 && yDim < shape.length) selectedDims.add(yDim);
+            if (zDim >=0 && zDim < shape.length && shape.length > 2) selectedDims.add(zDim);
+            
+            if ((shape.length === 1 && selectedDims.size !== 1) || 
+                (shape.length === 2 && selectedDims.size !== 2 && new Set([xDim,yDim]).size !== 2) || 
+                (shape.length > 2 && selectedDims.size !== 3 && new Set([xDim,yDim, zDim]).size !== 3)) {
+                // Reset to default if invalid selection due to dynamic changes
+                xDim = 0;
+                yDim = shape.length > 1 ? 1 : -1;
+                zDim = shape.length > 2 ? 2 : -1;
+                if (dimXSelect.options.length > 0) dimXSelect.value = xDim;
+                if (dimYSelect.options.length > 1 && yDim !== -1) dimYSelect.value = yDim;
+                else if (dimYSelect.options.length > 0) dimYSelect.value = dimYSelect.options[0].value;
+                if (dimZSelect.options.length > 2 && zDim !== -1) dimZSelect.value = zDim;
+                else if (dimZSelect.options.length > 0) dimZSelect.value = dimZSelect.options[0].value;
+            }
+            
+            zSliceInput.max = (zDim !== -1 && shape[zDim] > 0) ? shape[zDim] - 1 : 0;
+            if (zSliceIdx > parseInt(zSliceInput.max)) {
+                zSliceIdx = parseInt(zSliceInput.max);
+                zSliceInput.value = zSliceIdx;
+            }
+
+            let heatmapData, xLabels, yLabels, title;
+            const valueTypeDisplay = document.getElementById('value-type-select').selectedOptions[0].text;
+            title = `${valueTypeDisplay} - Layer ${layerIndex} - Epoch ${epoch}, Batch ${batchIdx}`;
+
+            if (shape.length === 0) { // Scalar
+                heatmapData = [[dataToPlot]];
+                xLabels = ['0'];
+                yLabels = ['0'];
+                title += ` (Scalar Value: ${dataToPlot.toExponential(3)})`;
+            } else if (shape.length === 1) { // 1D array (vector)
+                heatmapData = [dataToPlot]; // Plotly heatmap wants 2D array
+                xLabels = Array.from({ length: shape[0] }, (_, i) => i.toString());
+                yLabels = ['0']; // Single row
+                title += ` (Vector, Dim ${xDim})`;
+            } else if (shape.length === 2) { // 2D array (matrix)
+                // Transpose if xDim is 1 and yDim is 0
+                if (xDim === 1 && yDim === 0) {
+                    heatmapData = dataToPlot[0].map((_, colIndex) => dataToPlot.map(row => row[colIndex]));
+                    xLabels = Array.from({ length: shape[1] }, (_, i) => i.toString());
+                    yLabels = Array.from({ length: shape[0] }, (_, i) => i.toString());
+                } else {
+                    heatmapData = dataToPlot;
+                    xLabels = Array.from({ length: shape[xDim === 0? shape[1] : shape[0]] }, (_, i) => i.toString()); // columns
+                    yLabels = Array.from({ length: shape[xDim === 0? shape[0] : shape[1]] }, (_, i) => i.toString()); // rows
+                }
+                title += ` (Matrix, X:Dim ${xDim}, Y:Dim ${yDim})`;
+            } else { // >2D array, slice it
+                title += ` (Sliced >2D Tensor, X:Dim ${xDim}, Y:Dim ${yDim}, SliceDim:${zDim}@${zSliceIdx})`;
+                const fixedDims = []; // Dims not used for x, y, or slicing
+                for(let i=0; i<shape.length; i++) {
+                    if (i !== xDim && i !== yDim && i !== zDim) {
+                        fixedDims.push(i);
+                    }
+                }
+                
+                // This part is tricky: we need to extract a 2D slice
+                // based on xDim, yDim, zDim, and zSliceIdx.
+                // The remaining dimensions are effectively fixed at index 0 for this visualization.
+                // A more robust slicer would allow controlling all fixed_dims indices.
+                
+                const xSize = shape[xDim];
+                const ySize = shape[yDim];
+                heatmapData = Array(ySize).fill(null).map(() => Array(xSize).fill(0));
+
+                // Create a template path of indices, e.g., [0,0,0,...]
+                const indexPath = Array(shape.length).fill(0);
+                indexPath[zDim] = zSliceIdx; // Set the slice index for the z-dimension
+
+                for (let yi = 0; yi < ySize; yi++) {
+                    for (let xi = 0; xi < xSize; xi++) {
+                        indexPath[xDim] = xi;
+                        indexPath[yDim] = yi;
+                        // For other dimensions not x,y,z, we keep them at 0 for simplicity
+                        // A more complex UI could allow setting these.
+                        heatmapData[yi][xi] = getNestedValue(dataToPlot, indexPath);
+                    }
+                }
+                xLabels = Array.from({ length: xSize }, (_, i) => i.toString());
+                yLabels = Array.from({ length: ySize }, (_, i) => i.toString());
+            }
+
+            const plotData = [{
+                z: heatmapData,
+                x: xLabels,
+                y: yLabels,
+                type: 'heatmap',
+                colorscale: 'Viridis',
+                reversescale: true,
+                transpose: shape.length === 1 // For 1D, data is [values], y is '0', looks better transposed
+            }];
+
+            const layout = {
+                title: title,
+                xaxis: { title: `Selected X-Dimension (Dim ${xDim}, Size ${xLabels?.length || 'N/A'})` },
+                yaxis: { title: `Selected Y-Dimension (Dim ${yDim}, Size ${yLabels?.length || 'N/A'})` , autorange: 'reversed'},
+                // autosize: true, // this can sometimes fight with fixed height container
+                height: document.getElementById('gradient-plot-container').clientHeight || 500
+            };
+
+            Plotly.react('gradient-plot-container', plotData, layout);
+        }
+
+    </script>
+</body>
+</html> 

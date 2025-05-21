@@ -381,6 +381,8 @@ class SGD:
     def __call__(self):
         abs_update_float = 0
         abs_update_final = 0
+        updates_float = []
+        updates_final = []
         for w in self.nn.weights:
             update = w._grad * self.lr
             update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
@@ -388,8 +390,15 @@ class SGD:
             w.reset_grad()
             abs_update_float += np.abs(update).mean()
             abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
+            updates_float.append(update)
+            updates_final.append(update_final)
         self.lr *= self.lr_decay
-        return abs_update_float, abs_update_final
+        return {
+            'abs_update_float': abs_update_float,
+            'abs_update_final': abs_update_final,
+            'updates_float': updates_float,
+            'updates_final': updates_final
+        }
 
 
 class Adam:
@@ -502,7 +511,7 @@ def load_mnist(batch_size=1):
 def print_frac(a, b):
     return f'{a:{len(str(b))}}/{b}'
 
-def train(nn, epochs, lr, lr_decay):
+def train(nn, epochs, lr, lr_decay, train_logs):
     train_dl, test_dl = load_mnist(batch_size=1000)
 
     loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
@@ -519,9 +528,20 @@ def train(nn, epochs, lr, lr_decay):
             loss = loss_fn(nn(x), y)
             accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
-            abs_update_float, abs_update_final = optimizer()
-            print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {abs_update_final:.2e} (f: {abs_update_float:.2e}) | lr: {lr:.2e}", end="")
-            lr *= lr_decay
+            opt_logs = optimizer()
+            print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {opt_logs['abs_update_final']:.2e} (f: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
+            train_logs.append({
+                'weights': [w.data.copy() for w in nn.weights],
+                'loss': loss.data.item(),
+                'accuracy': accuracy,
+                'abs_update_float': opt_logs['abs_update_float'],
+                'abs_update_final': opt_logs['abs_update_final'],
+                'updates_float': opt_logs['updates_float'],
+                'updates_final': opt_logs['updates_final'],
+                'lr': optimizer.lr,
+                'epoch': epoch,
+                'i': i,
+            })
 
         # Test on validation set
         test_loss = 0
@@ -531,16 +551,18 @@ def train(nn, epochs, lr, lr_decay):
             test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
         print(f"\n{len(print_frac(i+1, len(train_dl)))*' '}   Test  loss: {test_loss / len(test_dl):7.4f} | accuracy: {test_accuracy / len(test_dl):6.2%}")
 
-
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=5e+2, lr_decay=0.995)
+        train_logs = []
+        train(nn, epochs=10, lr=1e+3, lr_decay=0.995, train_logs=train_logs)
     except KeyboardInterrupt:
         pass
     finally:
         print("\nSaving model...")
         nn.save('ring_nn.pkl')
+        with open('train_logs.pkl', 'wb') as f:
+            pickle.dump(train_logs, f)
 
 
 if __name__ == '__main__':
