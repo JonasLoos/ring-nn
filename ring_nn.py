@@ -210,33 +210,22 @@ class Tensor:
 class RingTensor(Tensor):
     dtype = np.int8
     # dtype = np.int16
-    min_value = -np.iinfo(dtype).max
+    min_value = np.iinfo(dtype).min
     max_value = np.iinfo(dtype).max
 
-    def __neg__(self) -> Self:
-        out = RingTensor(-self.data, requires_grad=self._rg)
-        out._prev = {self}
-
-        def _backward():
-            if self._rg:
-                self._grad += -out._grad
-        out._backward = _backward
-        return out
-
     def square(self) -> Self:
-        # square activation with sign: [-1, 1] -> [-1, 1]
+        # square activation with sign: [min, max] -> [min, max]
         out = RingTensor((self.data.astype(np.float32) / self.min_value)**2 * -self.min_value * np.sign(self.data), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                local_grad = -2 * self.data.astype(np.float32) * np.sign(self.data.astype(np.float32)) / self.min_value
-                self._grad += out._grad * local_grad
+                self._grad += out._grad * 2 * np.abs(self.data.astype(np.float32))
         out._backward = _backward
         return out
 
     def sin(self) -> Self:
-        # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x); [-1, 1] -> [-2, 2]
+        # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x)
         x = self.data.astype(np.float32) / (self.max_value - self.min_value)
         activation = ((np.sin(x*np.pi - np.pi/2) + 1) * np.sign(x) * self.max_value).clip(self.min_value, self.max_value)
         out = RingTensor(activation, requires_grad=self._rg)
@@ -384,8 +373,8 @@ class RingNN:
 
     def __call__(self, x):
         for w in self.weights:
-            x = (x + w).square().mean(axis=-2).unsqueeze(-1)
-        return 1 + x.real().abs() / RingTensor.min_value
+            x = (x - w).square().mean(axis=-2).unsqueeze(-1)
+        return 1 - x.real().abs() / -RingTensor.min_value
 
     def save(self, path):
         with open(path, 'wb') as f:
@@ -465,7 +454,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=5e+10, lr_decay=0.99)
+        train(nn, epochs=10, lr=5e+8, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
