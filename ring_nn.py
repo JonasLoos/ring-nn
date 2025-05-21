@@ -215,8 +215,8 @@ class Tensor:
 
 
 class RingTensor(Tensor):
-    dtype = np.int8
-    # dtype = np.int16
+    # dtype = np.int8
+    dtype = np.int16
     min_value = np.iinfo(dtype).min
     max_value = np.iinfo(dtype).max
     # [min, max] corresponds to [-1, 1], with -1 and 1 being next to each other the number ring
@@ -390,6 +390,26 @@ class RingNN:
         return nn
 
 
+class SGD:
+    def __init__(self, nn, lr, lr_decay):
+        self.nn = nn
+        self.lr = lr
+        self.lr_decay = lr_decay
+
+    def __call__(self):
+        abs_update_float = 0
+        abs_update_final = 0
+        for w in self.nn.weights:
+            update = w._grad * self.lr
+            update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
+            w.data += update_final
+            w.reset_grad()
+            abs_update_float += np.abs(update).mean()
+            abs_update_final += np.abs(update_final).mean()
+        self.lr *= self.lr_decay
+        return abs_update_float, abs_update_final
+
+
 def load_mnist(batch_size=None):
     mnist_url = 'https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz'
     mnist_path = 'mnist.npz'
@@ -425,32 +445,30 @@ def print_frac(a, b):
     return f'{a:{len(str(b))}}/{b}'
 
 def train(nn, epochs, lr, lr_decay):
-    x_train, y_train, x_test, y_test = load_mnist(batch_size=1000)
+    x_train, y_train, x_test, y_test = load_mnist(batch_size=500)
+
+    loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
+    # loss_fn = lambda a, b: ((a - b) ** 2).mean()  # MSE loss
+    # loss_fn = lambda a, b: a.cross_entropy(b)  # cross-entropy loss
+
+    optimizer = SGD(nn, lr, lr_decay)
 
     for epoch in range(epochs):
         print("-" * 100)
         print(f"Epoch {print_frac(epoch+1, epochs)}")
         for i, (x, y) in enumerate(zip(x_train, y_train)):
-            # loss = loss + (nn(x) - y).square().abs().mean()
-            # loss = loss + nn(x).cross_entropy(y)
-            loss = ((nn(x) - y).abs() * (1 + 8*y)).mean()  # balanced loss
+            loss = loss_fn(nn(x), y)
             accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
-            avg_grandient_change_float = np.mean([np.abs((w._grad * lr)).mean() for w in nn.weights])
-            avg_grandient_change = np.mean([np.abs(((w._grad * lr).clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype).astype(np.float32) / -RingTensor.min_value).mean() for w in nn.weights])
-            for w in nn.weights:
-                w.data = w.data + ((w._grad * lr).clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
-                w.reset_grad()
-            print(f"\r[{print_frac(i+1, len(x_train))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} (f: {avg_grandient_change_float:.2e}) | lr: {lr:.2e}", end="")
+            abs_update_float, abs_update_final = optimizer()
+            print(f"\r[{print_frac(i+1, len(x_train))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {abs_update_final:.2e} (f: {abs_update_float:.2e}) | lr: {lr:.2e}", end="")
             lr *= lr_decay
 
         # Test on validation set
         test_loss = 0
         test_accuracy = 0
         for x, y in zip(x_test, y_test):
-            # test_loss = test_loss + (nn(x) - y).square().abs().mean()
-            # test_loss = test_loss + nn(x).cross_entropy(y)
-            test_loss = test_loss + ((nn(x) - y).abs() * (1 + 9*y)).mean().data.item()
+            test_loss = test_loss + loss_fn(nn(x), y).data.item()
             test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
         print(f"\n{len(print_frac(i+1, len(x_train)))*' '}   Test  loss: {test_loss / len(x_test):7.4f} | accuracy: {test_accuracy / len(x_test):6.2%}")
 
@@ -458,7 +476,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=1e+4, lr_decay=0.99)
+        train(nn, epochs=10, lr=1e+3, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
