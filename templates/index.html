@@ -7,15 +7,21 @@
     <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.plot.ly/plotly-3.0.1.min.js" charset="utf-8"></script>
     <style>
-        body { padding-top: 20px; }
-        .plot-container { margin-bottom: 30px; }
-        .controls { margin-bottom: 20px; }
-        #gradient-plot-container { height: 500px; }
-        .axis-label-input {
-            width: 150px;
-            margin-left: 5px;
-            margin-right: 15px;
-        }
+body { padding-top: 20px; }
+.plot-container { margin-bottom: 30px; }
+.controls { margin-bottom: 20px; }
+#gradient-plot-container { height: 500px; }
+.axis-label-input {
+    width: 150px;
+    margin-left: 5px;
+    margin-right: 15px;
+}
+#gradient-explorer-controls {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: white;
+}
     </style>
 </head>
 <body>
@@ -29,17 +35,21 @@
             <!-- Overview Plots -->
             <div class="row">
                 <div class="col-md-6">
+                    <h3 class="text-center">Training Loss</h3>
                     <div id="loss-plot" class="plot-container"></div>
                 </div>
                 <div class="col-md-6">
+                    <h3 class="text-center">Training Accuracy</h3>
                     <div id="accuracy-plot" class="plot-container"></div>
                 </div>
             </div>
             <div class="row">
                 <div class="col-md-6">
+                    <h3 class="text-center">Learning Rate</h3>
                     <div id="lr-plot" class="plot-container"></div>
                 </div>
                 <div class="col-md-6">
+                    <h3 class="text-center">Average Update Ratio</h3>
                     <div id="update-ratio-plot" class="plot-container"></div>
                 </div>
             </div>
@@ -48,7 +58,7 @@
 
             <!-- Interactive Gradient Exploration -->
             <h2 class="text-center">Gradient Explorer</h2>
-            <div class="controls row">
+            <div class="controls row" id="gradient-explorer-controls">
                 <div class="col-md-3">
                     <label for="epoch-slider">Epoch:</label>
                     <input type="range" id="epoch-slider" class="form-control-range" min="0" max="0" step="1" value="0">
@@ -118,6 +128,20 @@
                 </div>
             </div>
 
+            <hr>
+
+            <!-- Weight Feature Visualization -->
+            <h2 class="text-center">Weight Feature Visualization</h2>
+            <p class="text-center">Visualizes features (e.g., columns of a weight matrix, reshaped into squares like 28x28, or kernels from a 3D/4D tensor)
+                                   from the selected layer's weights. Uses Epoch, Batch, and Layer from Gradient Explorer. Only for 'Weights' value type.
+                                   Shows absolute values on a 'Greys' colorscale.
+            </p>
+            <div class="row">
+                <div class="col-md-12">
+                    <div id="weight-feature-plot" class="plot-container" style="height: 500px;"></div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -162,6 +186,7 @@
                 plotGradientHeatmap(); // Initial plot
                 plotDistributionHistogram(); // Initial plot
                 plotParameterEvolution(); // Initial (empty) plot
+                plotWeightFeatureVisualizations(); // Initial plot for weight features
 
             } catch (error) {
                 console.error('Error loading or processing data:', error);
@@ -215,7 +240,7 @@
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Update Ratio (Final/Float)'
-            }], { title: 'Avg. Update Ratio vs. Iteration', xaxis: {title: 'Iteration'}, yaxis: {title: 'abs_update_final / abs_update_float'} });
+            }], { title: 'Avg. Update Ratio vs. Iteration', xaxis: {title: 'Iteration'}, yaxis: {title: 'abs_update_final / abs_update_float', type: 'log'} });
         }
 
         function setupGradientExplorer() {
@@ -267,6 +292,7 @@
                 batchValueSpan.textContent = `Batch: ${batchSlider.value}/${batchSlider.max}`;
                 plotGradientHeatmap();
                 plotDistributionHistogram();
+                plotWeightFeatureVisualizations();
             });
 
             batchSlider.addEventListener('input', (e) => {
@@ -274,15 +300,18 @@
                 batchValueSpan.textContent = `Batch: ${e.target.value}/${batchesPerEpoch[selectedEpoch] -1}`;
                 plotGradientHeatmap();
                 plotDistributionHistogram();
+                plotWeightFeatureVisualizations();
             });
 
             layerSelect.addEventListener('change', () => {
                 plotGradientHeatmap();
                 plotDistributionHistogram();
+                plotWeightFeatureVisualizations();
             });
             valueTypeSelect.addEventListener('change', () => {
                 plotGradientHeatmap();
                 plotDistributionHistogram();
+                plotWeightFeatureVisualizations(); // Update feature viz based on value type
                 if (trackedParameterPath) { // If a parameter is being tracked, update its evolution plot for the new value type
                     trackedParameterPath.valueType = document.getElementById('value-type-select').value;
                     plotParameterEvolution();
@@ -369,6 +398,7 @@
             while (Array.isArray(current)) {
                 shape.push(current.length);
                 current = current[0]; 
+                if (shape.length > 10) break; // Safety break for very deep or non-uniform arrays
             }
             return shape;
         }
@@ -381,6 +411,18 @@
                 val = val[index];
             }
             return val;
+        }
+
+        function reshape(arr, rows, cols) {
+            if (!arr || arr.length !== rows * cols) {
+                // console.warn(`Reshape failed: array length ${arr?.length} vs ${rows*cols}`);
+                return null;
+            }
+            const newArr = [];
+            for (let r = 0; r < rows; r++) {
+                newArr.push(arr.slice(r * cols, (r + 1) * cols));
+            }
+            return newArr;
         }
 
         function plotGradientHeatmap() {
@@ -641,6 +683,148 @@
             };
 
             Plotly.react(evolutionPlotDiv, [trace], layout);
+        }
+
+        function plotWeightFeatureVisualizations() {
+            const featurePlotDiv = document.getElementById('weight-feature-plot');
+            const epoch = parseInt(document.getElementById('epoch-slider').value);
+            const batchIdx = parseInt(document.getElementById('batch-slider').value);
+            const layerIndex = parseInt(document.getElementById('layer-select').value);
+            const valueType = document.getElementById('value-type-select').value;
+
+            if (valueType !== 'weights') {
+                Plotly.purge(featurePlotDiv);
+                featurePlotDiv.innerHTML = '<div class="alert alert-info">This visualization is only available for the "Weights" value type. Select "Weights" in the "Value Type" dropdown above.</div>';
+                return;
+            }
+
+            const logEntry = getLogEntry(epoch, batchIdx);
+            if (!logEntry || !logEntry.weights || !logEntry.weights[layerIndex]) {
+                Plotly.purge(featurePlotDiv);
+                featurePlotDiv.innerHTML = '<div class="alert alert-warning">Weight data not available for this selection.</div>';
+                return;
+            }
+
+            let layerWeights = logEntry.weights[layerIndex];
+            const shape = getArrayShape(layerWeights);
+            let extractedFeatures = []; // Stores {data (1D for reshape) or data2D, title, imageSide}
+
+            if (shape.length === 2) { // 2D array [dim0, dim1] -> dim1 features of length dim0
+                const dim0 = shape[0]; // feature length
+                const dim1 = shape[1]; // number of features
+                const imageSide = Math.sqrt(dim0);
+                if (Number.isInteger(imageSide) && imageSide > 0) {
+                    for (let i = 0; i < Math.min(dim1, 10); i++) {
+                        const column = layerWeights.map(row => Math.abs(row[i]));
+                        extractedFeatures.push({data: column, title: `F${i}`, imageSide: imageSide});
+                    }
+                }
+            } else if (shape.length === 1) { // 1D array [dim0] -> 1 feature if reshapeable
+                const dim0 = shape[0];
+                const imageSide = Math.sqrt(dim0);
+                if (Number.isInteger(imageSide) && imageSide > 0) {
+                     const absData = layerWeights.map(val => Math.abs(val));
+                    extractedFeatures.push({data: absData, title: `Vector`, imageSide: imageSide});
+                }
+            } else if (shape.length === 3) { // (num_filters, H, W)
+                const numFilters = shape[0];
+                const h = shape[1];
+                const w = shape[2];
+                if (h === w && h > 0) { // Square kernels/maps
+                    for (let i = 0; i < Math.min(numFilters, 10); i++) {
+                        if (layerWeights[i] && Array.isArray(layerWeights[i]) && Array.isArray(layerWeights[i][0])) {
+                             const filter2D = layerWeights[i].map(row => row.map(val => Math.abs(val)));
+                            extractedFeatures.push({data2D: filter2D, title: `Slc ${i}`, imageSide: h});
+                        }
+                    }
+                }
+            } else if (shape.length === 4) { // (C_out, C_in, H, W)
+                const cOut = shape[0];
+                const cIn = shape[1];
+                const h = shape[2];
+                const w = shape[3];
+                if (h === w && h > 0 && cIn > 0) { // Square kernels, at least one input channel
+                    for (let i = 0; i < Math.min(cOut, 10); i++) {
+                         // Visualize weights for the first input channel layerWeights[i][0]
+                        if (layerWeights[i] && layerWeights[i][0] && Array.isArray(layerWeights[i][0]) && Array.isArray(layerWeights[i][0][0])) {
+                            const filter2D = layerWeights[i][0].map(row => row.map(val => Math.abs(val)));
+                            extractedFeatures.push({data2D: filter2D, title: `F${i} Ch0`, imageSide: h});
+                        }
+                    }
+                }
+            }
+
+            if (extractedFeatures.length === 0) {
+                Plotly.purge(featurePlotDiv);
+                featurePlotDiv.innerHTML = '<div class="alert alert-warning">Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).</div>';
+                return;
+            }
+
+            const traces = [];
+            const layoutUpdates = {};
+            const MAX_SUBPLOTS = 10;
+            const numActualFeatures = Math.min(extractedFeatures.length, MAX_SUBPLOTS);
+
+            const COLS = 5;
+            const ROWS = Math.ceil(numActualFeatures / COLS);
+
+            for(let k=0; k < numActualFeatures; k++) {
+                const feature = extractedFeatures[k];
+                let heatmapZ;
+
+                if (feature.data2D) {
+                    heatmapZ = feature.data2D; // Already 2D and abs values taken
+                } else {
+                    heatmapZ = reshape(feature.data, feature.imageSide, feature.imageSide); // feature.data already has abs values
+                }
+
+                if (!heatmapZ) continue; // Reshape failed or data unsuitable
+
+                const axisNumber = k + 1;
+                const xaxisName = 'x' + (axisNumber === 1 ? '' : axisNumber);
+                const yaxisName = 'y' + (axisNumber === 1 ? '' : axisNumber);
+
+                traces.push({
+                    z: heatmapZ,
+                    type: 'heatmap',
+                    colorscale: 'Greys',
+                    reversescale: false, // Typically white is low, black is high for Greys
+                    showscale: false,
+                    xaxis: xaxisName,
+                    yaxis: yaxisName,
+                    hoverinfo: 'z+name',
+                    name: feature.title
+                });
+
+                layoutUpdates[xaxisName] = {
+                    showticklabels: false, zeroline: false, showgrid: false, ticks: '',
+                    title: {text: feature.title, font: {size: 10} },
+                    fixedrange: true // Disable zoom/scroll on x-axis
+                };
+                layoutUpdates[yaxisName] = {
+                    showticklabels: false, zeroline: false, showgrid: false, ticks: '',
+                    scaleanchor: xaxisName, scaleratio: 1,
+                    autorange: 'reversed', // To match typical image display (0,0 at top-left) if not default for heatmap
+                    fixedrange: true // Disable zoom/scroll on y-axis
+                };
+            }
+
+            if (traces.length === 0) {
+                 Plotly.purge(featurePlotDiv);
+                 featurePlotDiv.innerHTML = '<div class="alert alert-warning">No features could be prepared for visualization after processing.</div>';
+                 return;
+            }
+
+            const finalLayout = {
+                title: `Weight Feature Visualization - Layer ${layerIndex} (Epoch ${epoch}, Batch ${batchIdx})`,
+                grid: { rows: ROWS, columns: COLS, pattern: 'independent'},
+                ...layoutUpdates,
+                margin: { l: 25, r: 25, b: 25, t: 70, pad: 2 }, // Compact margins
+                hovermode: 'closest'
+            };
+            // featurePlotDiv.style.height = `${ROWS * (extractedFeatures[0].imageSide * 3 + 40)}px`; // Optional: dynamic height adjustment
+
+            Plotly.newPlot(featurePlotDiv, traces, finalLayout);
         }
 
     </script>
