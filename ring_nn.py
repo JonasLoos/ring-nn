@@ -421,13 +421,15 @@ def load_mnist(batch_size=None):
 
     return x_train, y_train, x_test, y_test
 
+def print_frac(a, b):
+    return f'{a:{len(str(b))}}/{b}'
+
 def train(nn, epochs, lr, lr_decay):
     x_train, y_train, x_test, y_test = load_mnist(batch_size=1000)
 
     for epoch in range(epochs):
         print("-" * 100)
-        print(f"Epoch {epoch+1}/{epochs}")
-        print("-" * 100)
+        print(f"Epoch {print_frac(epoch+1, epochs)}")
         for i, (x, y) in enumerate(zip(x_train, y_train)):
             # loss = loss + (nn(x) - y).square().abs().mean()
             # loss = loss + nn(x).cross_entropy(y)
@@ -439,7 +441,7 @@ def train(nn, epochs, lr, lr_decay):
             for w in nn.weights:
                 w.data = w.data + ((w._grad * lr).clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
                 w.reset_grad()
-            print(f"\r[{i+1:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} (f: {avg_grandient_change_float:.2e}) | lr: {lr:.2e}", end="")
+            print(f"\r[{print_frac(i+1, len(x_train))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} (f: {avg_grandient_change_float:.2e}) | lr: {lr:.2e}", end="")
             lr *= lr_decay
 
         # Test on validation set
@@ -450,7 +452,7 @@ def train(nn, epochs, lr, lr_decay):
             # test_loss = test_loss + nn(x).cross_entropy(y)
             test_loss = test_loss + ((nn(x) - y).abs() * (1 + 9*y)).mean().data.item()
             test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
-        print(f"\nTest loss: {test_loss / len(x_test)} | accuracy: {test_accuracy / len(x_test):6.2%}")
+        print(f"\n{len(print_frac(i+1, len(x_train)))*' '}   Test  loss: {test_loss / len(x_test):7.4f} | accuracy: {test_accuracy / len(x_test):6.2%}")
 
 
 def ring_nn():
