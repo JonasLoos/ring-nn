@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from typing import Self, TypeVar
 import urllib.request
 import os
@@ -233,14 +234,14 @@ class RingTensor(Tensor):
     def as_float(self) -> np.ndarray:
         return self.data.astype(np.float32) / -self.min_value
 
-    def square(self) -> Self:
-        # square activation with sign: [min, max] -> [min, max]
-        out = RingTensor(self.as_float()**2 * self.sign, requires_grad=self._rg)
+    def poly(self, order: float) -> Self:
+        # polynomial activation: |x|^order * sign(x)
+        out = RingTensor(np.abs(self.as_float())**order * self.sign, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                self._grad += out._grad * 2 * np.abs(self.as_float())
+                self._grad += out._grad * order * (np.abs(self.as_float()) + 1e-20)**(order-1)
         out._backward = _backward
         return out
 
@@ -252,27 +253,8 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                # TODO: implement
-                pass
-        out._backward = _backward
-        return out
-
-    def softmin(self, axis=0) -> Self:
-        # TODO: update
-        abs_x = np.abs(self.data.astype(np.float32))         # |x|
-        S     = abs_x.sum(axis, keepdims=True)               # Σ|x|
-        x_exp = np.exp(-abs_x / S)                           # exp(-norm(|x|))
-        y     = x_exp / x_exp.sum(axis, keepdims=True)       # soft-min
-        out   = RingTensor((y * self.max_value).clip(self.min_value, self.max_value), requires_grad=self._rg)
-        out._prev = {self}
-
-        def _backward():
-            if self._rg:
-                g_y = out._grad.astype(np.float32) / self.max_value                   # dL/dy
-                g_n = y * ((g_y * y).sum(axis, keepdims=True) - g_y)                  # dL/dn
-                g_abs = (S * g_n - (g_n * abs_x).sum(axis, keepdims=True)) / (S * S)  # dL/d|x|
-                self._grad += g_abs * self.sign                                       # back through |·|
-
+                # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
+                self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign
         out._backward = _backward
         return out
 
@@ -356,14 +338,14 @@ class RealTensor(Tensor):
         return out
 
     def cross_entropy(self, other: Selflike) -> Self:
-        out = RealTensor(np.sum(-other.data * np.log(self.data), axis=0), requires_grad=self._rg)
+        out = RealTensor(np.mean(-other.as_float() * np.log(self.as_float())), requires_grad=self._rg)
         out._prev = {self, other}
 
         def _backward():
             if self._rg:
-                self._grad += -other.data / self.data
+                self._grad += -other.as_float() / self.as_float()
             if other._rg:
-                other._grad += np.log(self.data)
+                other._grad += np.log(self.as_float())
         out._backward = _backward
         return out
 
@@ -374,7 +356,7 @@ class RingNN:
 
     def __call__(self, x):
         for w in self.weights:
-            x = (x - w).square().mean(axis=-2).unsqueeze(-1)
+            x = (x - w).poly(1/2).mean(axis=-2).unsqueeze(-1)
         return 1 - x.real().abs()
 
     def save(self, path):
@@ -402,15 +384,94 @@ class SGD:
         for w in self.nn.weights:
             update = w._grad * self.lr
             update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
-            w.data += update_final
+            w.data -= update_final
             w.reset_grad()
             abs_update_float += np.abs(update).mean()
-            abs_update_final += np.abs(update_final).mean()
+            abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
         self.lr *= self.lr_decay
         return abs_update_float, abs_update_final
 
 
-def load_mnist(batch_size=None):
+class Adam:
+    def __init__(self, nn, lr, lr_decay):
+        self.nn = nn
+        self.lr = lr
+        self.lr_decay = lr_decay
+        self.beta1 = 0.9
+        self.beta2 = 0.999
+        self.epsilon = 1e-8
+        self.t = 0
+        self.m = [np.zeros_like(w.data, dtype=np.float32) for w in self.nn.weights]
+        self.v = [np.zeros_like(w.data, dtype=np.float32) for w in self.nn.weights]
+
+    def __call__(self):
+        self.t += 1
+        abs_update_float = 0
+        abs_update_final = 0
+        for i, w in enumerate(self.nn.weights):
+            if w._grad is None:
+                continue
+
+            grad = w._grad.astype(np.float32) # Ensure gradient is float32 for calculations
+
+            # Update biased first moment estimate
+            self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
+            # Update biased second raw moment estimate
+            self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (grad ** 2)
+
+            # Compute bias-corrected first moment estimate
+            m_hat = self.m[i] / (1 - self.beta1 ** self.t)
+            # Compute bias-corrected second raw moment estimate
+            v_hat = self.v[i] / (1 - self.beta2 ** self.t)
+
+            # Calculate the update
+            update = self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+            
+            # Apply update to RingTensor (quantized)
+            update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
+            w.data -= update_final
+            
+            w.reset_grad()
+
+            abs_update_float += np.abs(update).mean()
+            abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
+        
+        self.lr *= self.lr_decay
+        return abs_update_float, abs_update_final
+
+
+class Dataloader:
+    def __init__(self, x, y, batch_size=1, shuffle=True):
+        self.x = x
+        self.y = y
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.perm = np.random.permutation(len(x)) if shuffle else np.arange(len(x))
+        self.i = 0
+
+    def __iter__(self):
+        if self.shuffle:
+            self.perm = np.random.permutation(len(self.x))
+        self.i = 0
+        return self
+
+    def __next__(self):
+        if self.i >= len(self.x):
+            raise StopIteration
+        indices = self.perm[self.i:self.i+self.batch_size]
+        xs = [self.x[j] for j in indices]
+        ys = [self.y[j] for j in indices]
+        self.i += self.batch_size
+        return (
+            xs[0].__class__.stack(*xs),
+            ys[0].__class__.stack(*ys)
+        )
+
+    def __len__(self):
+        return math.ceil(len(self.x) / self.batch_size)
+
+
+def load_mnist(batch_size=1):
     mnist_url = 'https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz'
     mnist_path = 'mnist.npz'
 
@@ -433,50 +494,48 @@ def load_mnist(batch_size=None):
     x_train, y_train = convert_x(data['x_train']), convert_y(data['y_train'])
     x_test, y_test = convert_x(data['x_test']), convert_y(data['y_test'])
 
-    if batch_size is not None:
-        def batch(data):
-            return [data[0].__class__.stack(*data[i:i+batch_size]) for i in range(0, len(data), batch_size)]
-        x_train, y_train = batch(x_train), batch(y_train)
-        x_test, y_test = batch(x_test), batch(y_test)
-
-    return x_train, y_train, x_test, y_test
+    return (
+        Dataloader(x_train, y_train, batch_size=batch_size),
+        Dataloader(x_test, y_test, batch_size=batch_size),
+    )
 
 def print_frac(a, b):
     return f'{a:{len(str(b))}}/{b}'
 
 def train(nn, epochs, lr, lr_decay):
-    x_train, y_train, x_test, y_test = load_mnist(batch_size=500)
+    train_dl, test_dl = load_mnist(batch_size=1000)
 
     loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
     # loss_fn = lambda a, b: ((a - b) ** 2).mean()  # MSE loss
     # loss_fn = lambda a, b: a.cross_entropy(b)  # cross-entropy loss
 
     optimizer = SGD(nn, lr, lr_decay)
+    # optimizer = Adam(nn, lr, lr_decay)
 
     for epoch in range(epochs):
         print("-" * 100)
         print(f"Epoch {print_frac(epoch+1, epochs)}")
-        for i, (x, y) in enumerate(zip(x_train, y_train)):
+        for i, (x, y) in enumerate(train_dl):
             loss = loss_fn(nn(x), y)
             accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
             abs_update_float, abs_update_final = optimizer()
-            print(f"\r[{print_frac(i+1, len(x_train))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {abs_update_final:.2e} (f: {abs_update_float:.2e}) | lr: {lr:.2e}", end="")
+            print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {abs_update_final:.2e} (f: {abs_update_float:.2e}) | lr: {lr:.2e}", end="")
             lr *= lr_decay
 
         # Test on validation set
         test_loss = 0
         test_accuracy = 0
-        for x, y in zip(x_test, y_test):
+        for x, y in test_dl:
             test_loss = test_loss + loss_fn(nn(x), y).data.item()
             test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
-        print(f"\n{len(print_frac(i+1, len(x_train)))*' '}   Test  loss: {test_loss / len(x_test):7.4f} | accuracy: {test_accuracy / len(x_test):6.2%}")
+        print(f"\n{len(print_frac(i+1, len(train_dl)))*' '}   Test  loss: {test_loss / len(test_dl):7.4f} | accuracy: {test_accuracy / len(test_dl):6.2%}")
 
 
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=1e+3, lr_decay=0.99)
+        train(nn, epochs=10, lr=5e+2, lr_decay=0.995)
     except KeyboardInterrupt:
         pass
     finally:
