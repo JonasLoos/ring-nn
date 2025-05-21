@@ -25,28 +25,35 @@ class Tensor:
     min_value = None
     max_value = None
 
-    def __init__(self, data, requires_grad=False):
+    def __init__(self, *, raw_data: np.ndarray | None = None, requires_grad=False):
         if self.dtype is None: raise ValueError("Use a subclass of Tensor")
-        self.data = np.array(data, dtype=self.dtype)
+        if raw_data is None: raise ValueError("raw_data must be provided")
+        self.data = raw_data
         self._rg = requires_grad
-        self._grad = None
-        self.reset_grad()
         self._backward = None
         self._prev = set()
+        self.reset_grad()
+
+    def as_float(self) -> np.ndarray:
+        raise NotImplementedError("Subclasses must implement this method")
 
     def reset_grad(self):
         self._grad = np.zeros_like(self.data, dtype=np.float32) if self._rg else None
 
+    @property
+    def sign(self) -> np.ndarray:
+        return np.sign(self.data)
+
     @convert_other
     def __add__(self, other: Selflike) -> Self:
-        out = self.__class__(self.data + other.data, requires_grad=self._rg or other._rg)
+        out = self.__class__(raw_data=self.data + other.data, requires_grad=self._rg or other._rg)
         out._prev = {self, other}
 
         def _backward():
             if self._rg:
-                self._grad += Tensor._unbroadcast_gradient(out._grad, self.data.shape)
+                self._grad += Tensor._unbroadcast_gradient(out._grad, self.shape)
             if other._rg:
-                other._grad += Tensor._unbroadcast_gradient(out._grad, other.data.shape)
+                other._grad += Tensor._unbroadcast_gradient(out._grad, other.shape)
         out._backward = _backward
         return out
 
@@ -54,7 +61,7 @@ class Tensor:
         return self + other
 
     def sum(self, axis=None, keepdims=False):
-        out = self.__class__(self.data.sum(axis=axis, keepdims=keepdims), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.sum(axis=axis, keepdims=keepdims), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -63,13 +70,13 @@ class Tensor:
                 # restore the lost dimensions so broadcasting works
                 if not keepdims and axis is not None:
                     g = np.expand_dims(g, axis=axis)
-                self._grad += np.broadcast_to(g, self.data.shape)
+                self._grad += np.broadcast_to(g, self.shape)
 
         out._backward = _backward
         return out
 
     def mean(self, axis=None, keepdims=False):
-        out = self.__class__(self.data.mean(axis=axis, keepdims=keepdims), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.mean(axis=axis, keepdims=keepdims), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -89,7 +96,7 @@ class Tensor:
         return other + (-self)
 
     def __neg__(self) -> Self:
-        out = self.__class__(-self.data, requires_grad=self._rg)
+        out = self.__class__(raw_data=-self.data, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -129,7 +136,7 @@ class Tensor:
         return self.data.size
 
     def reshape(self, shape):
-        out = self.__class__(self.data.reshape(shape), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.reshape(shape), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -140,7 +147,7 @@ class Tensor:
         return out
 
     def unsqueeze(self, axis):
-        out = self.__class__(np.expand_dims(self.data, axis=axis), requires_grad=self._rg)
+        out = self.__class__(raw_data=np.expand_dims(self.data, axis=axis), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -150,7 +157,7 @@ class Tensor:
         return out
 
     def squeeze(self, axis):
-        out = self.__class__(np.squeeze(self.data, axis=axis), requires_grad=self._rg)
+        out = self.__class__(raw_data=np.squeeze(self.data, axis=axis), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -161,7 +168,7 @@ class Tensor:
 
     @classmethod
     def stack(cls, *tensors, axis=0):
-        out = cls(np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
+        out = cls(raw_data=np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
         out._prev = set(tensors)
 
         def _backward():
@@ -212,63 +219,46 @@ class RingTensor(Tensor):
     # dtype = np.int16
     min_value = np.iinfo(dtype).min
     max_value = np.iinfo(dtype).max
+    # [min, max] corresponds to [-1, 1], with -1 and 1 being next to each other the number ring
+    # the implementation assumes that -min_value is roughly equal to max_value
+
+    def __init__(self, data=None, *, raw_data=None, requires_grad=False):
+        if data is not None and raw_data is not None:
+            raise ValueError("Only one of data or raw_data can be provided")
+        if data is not None:
+            # convert data from [-1, 1] to [min, max]
+            raw_data = (data * -self.min_value).clip(self.min_value, self.max_value).astype(self.dtype)
+        super().__init__(raw_data=raw_data, requires_grad=requires_grad)
+
+    def as_float(self) -> np.ndarray:
+        return self.data.astype(np.float32) / -self.min_value
 
     def square(self) -> Self:
         # square activation with sign: [min, max] -> [min, max]
-        out = RingTensor((self.data.astype(np.float32) / self.min_value)**2 * -self.min_value * np.sign(self.data), requires_grad=self._rg)
+        out = RingTensor(self.as_float()**2 * self.sign, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                self._grad += out._grad * 2 * np.abs(self.data.astype(np.float32)) / -RingTensor.min_value
+                self._grad += out._grad * 2 * np.abs(self.as_float())
         out._backward = _backward
         return out
 
     def sin(self) -> Self:
         # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x)
-        x = self.data.astype(np.float32) / (self.max_value - self.min_value)
-        activation = ((np.sin(x*np.pi - np.pi/2) + 1) * np.sign(x) * self.max_value).clip(self.min_value, self.max_value)
+        activation = (np.sin(self.as_float()*np.pi - np.pi/2) + 1) * self.sign
         out = RingTensor(activation, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                denom = float(self.max_value - self.min_value)
-                # Avoid division by zero if max_value can equal min_value (should not happen for RingTensor)
-                if abs(denom) < 1e-9: 
-                    denom = 1e-9 if denom >= 0 else -1e-9
-
-                x_norm = self.data.astype(np.float32) / denom 
-                sign_x_norm = np.sign(x_norm) 
-
-                # Recompute intermediate act_float_val from forward pass for clip derivative
-                val_for_sin_calc = x_norm * np.pi - np.pi/2
-                sin_result = np.sin(val_for_sin_calc)
-                act_float_val = (sin_result + 1) * sign_x_norm * self.max_value
-                
-                # Derivative of final_clip(act_float_val) w.r.t act_float_val
-                grad_clip_wrt_act_float = np.zeros_like(act_float_val, dtype=np.float32)
-                # PyTorch behavior for clip gradient: 1 if min_val <= x <= max_val, else 0.
-                clip_condition = (act_float_val >= self.min_value) & (act_float_val <= self.max_value)
-                grad_clip_wrt_act_float[clip_condition] = 1.0
-                
-                # Derivative of act_float_val w.r.t x_norm
-                # d/du [ (sin(u*pi-pi/2)+1) * sign(u) * C ]
-                # Assuming sign(u) is locally constant (or derivative of sign(u) handled by sign_x_norm=0 if u=0):
-                # [cos(u*pi-pi/2)*pi] * sign(u) * C
-                cos_term = np.cos(val_for_sin_calc) * np.pi
-                d_act_float_dxn = cos_term * sign_x_norm * self.max_value
-                
-                # Derivative of x_norm w.r.t self.data
-                d_xn_d_data = 1.0 / denom
-                
-                local_grad = grad_clip_wrt_act_float * d_act_float_dxn * d_xn_d_data
-                
-                self._grad += out._grad * local_grad
+                # TODO: implement
+                pass
         out._backward = _backward
         return out
 
     def softmin(self, axis=0) -> Self:
+        # TODO: update
         abs_x = np.abs(self.data.astype(np.float32))         # |x|
         S     = abs_x.sum(axis, keepdims=True)               # Σ|x|
         x_exp = np.exp(-abs_x / S)                           # exp(-norm(|x|))
@@ -281,17 +271,18 @@ class RingTensor(Tensor):
                 g_y = out._grad.astype(np.float32) / self.max_value                   # dL/dy
                 g_n = y * ((g_y * y).sum(axis, keepdims=True) - g_y)                  # dL/dn
                 g_abs = (S * g_n - (g_n * abs_x).sum(axis, keepdims=True)) / (S * S)  # dL/d|x|
-                self._grad += g_abs * np.sign(self.data)                              # back through |·|
+                self._grad += g_abs * self.sign                                       # back through |·|
 
         out._backward = _backward
         return out
 
     @classmethod
     def rand(cls, shape, requires_grad=False):
-        return cls(np.random.randint(cls.min_value, cls.max_value, size=shape, dtype=cls.dtype), requires_grad=requires_grad)
+        out = cls(raw_data=np.random.randint(cls.min_value, cls.max_value, size=shape, dtype=cls.dtype), requires_grad=requires_grad)
+        return out
 
     def real(self) -> Self:
-        out = RealTensor(self.data.astype(np.float32), requires_grad=self._rg)
+        out = RealTensor(self.as_float(), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -305,6 +296,16 @@ class RealTensor(Tensor):
     dtype = np.float32
     min_value = -np.inf
     max_value = np.inf
+
+    def __init__(self, data=None, *, raw_data: np.ndarray | None = None, requires_grad=False):
+        if data is not None and raw_data is not None:
+            raise ValueError("Only one of data or raw_data can be provided")
+        if data is not None:
+            raw_data = np.array(data, dtype=self.dtype)
+        super().__init__(raw_data=raw_data, requires_grad=requires_grad)
+
+    def as_float(self) -> np.ndarray:
+        return self.data
 
     @convert_other
     def __mul__(self, other: Selflike) -> Self:
@@ -350,7 +351,7 @@ class RealTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad += out._grad * np.sign(self.data)
+                self._grad += out._grad * self.sign
         out._backward = _backward
         return out
 
@@ -374,7 +375,7 @@ class RingNN:
     def __call__(self, x):
         for w in self.weights:
             x = (x - w).square().mean(axis=-2).unsqueeze(-1)
-        return 1 - x.real().abs() / -RingTensor.min_value
+        return 1 - x.real().abs()
 
     def save(self, path):
         with open(path, 'wb') as f:
@@ -398,7 +399,7 @@ def load_mnist(batch_size=None):
         urllib.request.urlretrieve(mnist_url, mnist_path)
 
     def convert_x(data):
-        return [RingTensor(x).reshape((784, 1)) for x in data]
+        return [RingTensor(x / 255).reshape((784, 1)) for x in data]
 
     def convert_y(data):
         result = []
@@ -425,7 +426,7 @@ def train(nn, epochs, lr, lr_decay):
 
     for epoch in range(epochs):
         print("-" * 100)
-        print(f"Epoch {epoch}")
+        print(f"Epoch {epoch+1}/{epochs}")
         print("-" * 100)
         for i, (x, y) in enumerate(zip(x_train, y_train)):
             # loss = loss + (nn(x) - y).square().abs().mean()
@@ -434,9 +435,9 @@ def train(nn, epochs, lr, lr_decay):
             accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
             avg_grandient_change_float = np.mean([np.abs((w._grad * lr)).mean() for w in nn.weights])
-            avg_grandient_change = np.mean([np.abs((w._grad * lr).clip(RingTensor.min_value, RingTensor.max_value).astype(RingTensor.dtype).astype(np.float32)).mean() for w in nn.weights])
+            avg_grandient_change = np.mean([np.abs(((w._grad * lr).clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype).astype(np.float32) / -RingTensor.min_value).mean() for w in nn.weights])
             for w in nn.weights:
-                w.data = w.data + (w._grad * lr).clip(RingTensor.min_value, RingTensor.max_value).astype(RingTensor.dtype)
+                w.data = w.data + ((w._grad * lr).clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
                 w.reset_grad()
             print(f"\r[{i+1:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} (f: {avg_grandient_change_float:.2e}) | lr: {lr:.2e}", end="")
             lr *= lr_decay
@@ -455,7 +456,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=1e+7, lr_decay=0.999)
+        train(nn, epochs=10, lr=1e+4, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
