@@ -220,7 +220,7 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad += out._grad * 2 * np.abs(self.data.astype(np.float32))
+                self._grad += out._grad * 2 * np.abs(self.data.astype(np.float32)) / -RingTensor.min_value
         out._backward = _backward
         return out
 
@@ -421,7 +421,7 @@ def load_mnist(batch_size=None):
     return x_train, y_train, x_test, y_test
 
 def train(nn, epochs, lr, lr_decay):
-    x_train, y_train, x_test, y_test = load_mnist(batch_size=500)
+    x_train, y_train, x_test, y_test = load_mnist(batch_size=1000)
 
     for epoch in range(epochs):
         print("-" * 100)
@@ -430,14 +430,15 @@ def train(nn, epochs, lr, lr_decay):
         for i, (x, y) in enumerate(zip(x_train, y_train)):
             # loss = loss + (nn(x) - y).square().abs().mean()
             # loss = loss + nn(x).cross_entropy(y)
-            loss = ((nn(x) - y).abs() * (1 + 9*y)).mean()  # balanced loss
+            loss = ((nn(x) - y).abs() * (1 + 8*y)).mean()  # balanced loss
             accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
-            avg_grandient_change = np.mean([np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape) for w in nn.weights])
+            avg_grandient_change_float = np.mean([np.abs((w._grad * lr)).mean() for w in nn.weights])
+            avg_grandient_change = np.mean([np.abs((w._grad * lr).clip(RingTensor.min_value, RingTensor.max_value).astype(RingTensor.dtype).astype(np.float32)).mean() for w in nn.weights])
             for w in nn.weights:
-                w.data = w.data + w._grad * lr
+                w.data = w.data + (w._grad * lr).clip(RingTensor.min_value, RingTensor.max_value).astype(RingTensor.dtype)
                 w.reset_grad()
-            print(f"\r[{i+1:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} | lr: {lr:.2e}", end="")
+            print(f"\r[{i+1:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} (f: {avg_grandient_change_float:.2e}) | lr: {lr:.2e}", end="")
             lr *= lr_decay
 
         # Test on validation set
@@ -454,7 +455,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=5e+8, lr_decay=0.99)
+        train(nn, epochs=10, lr=1e+7, lr_decay=0.999)
     except KeyboardInterrupt:
         pass
     finally:
