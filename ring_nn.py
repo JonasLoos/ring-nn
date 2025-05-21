@@ -236,7 +236,7 @@ class RingTensor(Tensor):
 
     def poly(self, order: float) -> Self:
         # polynomial activation: |x|^order * sign(x)
-        out = RingTensor(np.abs(self.as_float())**order * self.sign, requires_grad=self._rg)
+        out = RingTensor(np.abs(self.as_float() + 1e-20)**order * self.sign, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
@@ -245,16 +245,26 @@ class RingTensor(Tensor):
         out._backward = _backward
         return out
 
+    def poly_sigmoid(self, order: float, slope: float) -> Self:
+        out = RingTensor((1 + slope) * self.as_float() - slope * self.sign * (np.abs(self.as_float() + 1e-20)**order), requires_grad=self._rg)
+        out._prev = {self}
+
+        def _backward():
+            if self._rg:
+                self._grad += out._grad * (1 + slope) - slope * out._grad * order * (np.abs(self.as_float() + 1e-20)**(order-1))
+        out._backward = _backward
+        return out
+
     def sin(self) -> Self:
-        # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x)
-        activation = (np.sin(self.as_float()*np.pi - np.pi/2) + 1) * self.sign
+        # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x) * 0.5
+        activation = (np.sin(self.as_float()*np.pi - np.pi/2) + 1) * self.sign * 0.5
         out = RingTensor(activation, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
                 # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
-                self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign
+                self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign * 0.5
         out._backward = _backward
         return out
 
@@ -367,7 +377,7 @@ class RingNN:
 
     def __call__(self, x):
         for w in self.weights:
-            x = (x - w).poly(1/2).mean(axis=-2).unsqueeze(-1)
+            x = (x - w).poly_sigmoid(1.2, 4).mean(axis=-2).unsqueeze(-1)
         return 1 - x.real().abs()
 
     def save(self, path):
