@@ -1,7 +1,8 @@
 import unittest
 import numpy as np
 import torch
-from ring_nn import RingTensor, RealTensor
+from tensor import RingTensor, RealTensor
+
 
 # Helper for converting numpy data to torch tensor for tests
 def to_torch(numpy_data, requires_grad=True, dtype=torch.float32):
