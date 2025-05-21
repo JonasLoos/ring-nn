@@ -786,27 +786,16 @@ body { padding-top: 20px; }
 
                 traces.push({
                     z: heatmapZ,
+                    zmin: 0,
                     type: 'heatmap',
                     colorscale: 'Greys',
-                    reversescale: false, // Typically white is low, black is high for Greys
+                    reversescale: false,
                     showscale: false,
                     xaxis: xaxisName,
                     yaxis: yaxisName,
                     hoverinfo: 'z+name',
-                    name: feature.title
+                    name: feature.title,
                 });
-
-                layoutUpdates[xaxisName] = {
-                    showticklabels: false, zeroline: false, showgrid: false, ticks: '',
-                    title: {text: feature.title, font: {size: 10} },
-                    fixedrange: true // Disable zoom/scroll on x-axis
-                };
-                layoutUpdates[yaxisName] = {
-                    showticklabels: false, zeroline: false, showgrid: false, ticks: '',
-                    scaleanchor: xaxisName, scaleratio: 1,
-                    autorange: 'reversed', // To match typical image display (0,0 at top-left) if not default for heatmap
-                    fixedrange: true // Disable zoom/scroll on y-axis
-                };
             }
 
             if (traces.length === 0) {
