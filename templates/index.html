@@ -90,6 +90,34 @@
                     <input type="number" id="z-slice-input" class="form-control-sm" value="0" title="Slice index for Z-axis">
                 </div>
             </div>
+
+            <hr>
+
+            <!-- Weight/Update Distribution Histogram -->
+            <h2 class="text-center">Weight/Update Distribution</h2>
+            <p class="text-center">Uses the same Epoch, Batch, Layer, and Value Type selections from the Gradient Explorer above.</p>
+            <div class="row">
+                <div class="col-md-12">
+                    <div id="distribution-histogram-plot" class="plot-container" style="height: 400px;"></div>
+                </div>
+            </div>
+
+            <hr>
+
+            <!-- Parameter Value Evolution -->
+            <h2 class="text-center">Parameter Value Evolution</h2>
+            <p class="text-center">Click on a cell in the Gradient Explorer heatmap to select a parameter. The plot below will show its value (or its update's value) over all iterations.</p>
+            <div class="row controls">
+                <div class="col-md-12">
+                    <p><strong>Tracking Parameter:</strong> <span id="tracked-parameter-info">Nothing selected. Click on the heatmap above.</span></p>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-12">
+                    <div id="parameter-evolution-plot" class="plot-container" style="height: 400px;"></div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -98,6 +126,7 @@
         let uniqueEpochs = [];
         let batchesPerEpoch = {}; // Stores how many batches are in each epoch
         let maxBatches = 0; // Max batches in any epoch, for slider
+        let trackedParameterPath = null; // { layerIndex, valueType, indexPath: [idx1, idx2...] }
 
         document.addEventListener('DOMContentLoaded', async () => {
             try {
@@ -131,6 +160,8 @@
                 plotOverviewCharts();
                 setupGradientExplorer();
                 plotGradientHeatmap(); // Initial plot
+                plotDistributionHistogram(); // Initial plot
+                plotParameterEvolution(); // Initial (empty) plot
 
             } catch (error) {
                 console.error('Error loading or processing data:', error);
@@ -235,16 +266,30 @@
                 }
                 batchValueSpan.textContent = `Batch: ${batchSlider.value}/${batchSlider.max}`;
                 plotGradientHeatmap();
+                plotDistributionHistogram();
             });
 
             batchSlider.addEventListener('input', (e) => {
                 const selectedEpoch = parseInt(epochSlider.value);
                 batchValueSpan.textContent = `Batch: ${e.target.value}/${batchesPerEpoch[selectedEpoch] -1}`;
                 plotGradientHeatmap();
+                plotDistributionHistogram();
             });
 
-            layerSelect.addEventListener('change', plotGradientHeatmap);
-            valueTypeSelect.addEventListener('change', plotGradientHeatmap);
+            layerSelect.addEventListener('change', () => {
+                plotGradientHeatmap();
+                plotDistributionHistogram();
+            });
+            valueTypeSelect.addEventListener('change', () => {
+                plotGradientHeatmap();
+                plotDistributionHistogram();
+                if (trackedParameterPath) { // If a parameter is being tracked, update its evolution plot for the new value type
+                    trackedParameterPath.valueType = document.getElementById('value-type-select').value;
+                    plotParameterEvolution();
+                     document.getElementById('tracked-parameter-info').textContent = 
+                        `Layer: ${trackedParameterPath.layerIndex}, Type: ${trackedParameterPath.valueType}, Path: [${trackedParameterPath.indexPath.join(', ')}]`;
+                }
+            });
             dimXSelect.addEventListener('change', plotGradientHeatmap);
             dimYSelect.addEventListener('change', plotGradientHeatmap);
             dimZSelect.addEventListener('change', plotGradientHeatmap);
@@ -254,10 +299,65 @@
                 if (data.points.length > 0) {
                     const point = data.points[0];
                     const zValue = point.z;
-                    const xCoord = point.x;
-                    const yCoord = point.y;
+                    // point.x and point.y are the string labels of the axes if they exist, or indices if not.
+                    // We need the actual indices into the potentially multi-dimensional array.
+                    // The current plotGradientHeatmap logic ensures x, y, z, and slice dimensions are handled.
+                    // We need to reconstruct the full path to the selected element based on current dim selections.
+
+                    const xDim = parseInt(document.getElementById('dim-x-select').value) || 0;
+                    const yDim = parseInt(document.getElementById('dim-y-select').value) || 0;
+                    const zDim = parseInt(document.getElementById('dim-z-select').value) || 0; // Slicing dim
+                    const zSliceIdx = parseInt(document.getElementById('z-slice-input').value) || 0;
+
+                    const layerIndex = parseInt(document.getElementById('layer-select').value);
+                    const currentEpoch = parseInt(document.getElementById('epoch-slider').value);
+                    const currentBatchIdx = parseInt(document.getElementById('batch-slider').value);
+                    const currentValueType = document.getElementById('value-type-select').value;
+                    const logEntry = getLogEntry(currentEpoch, currentBatchIdx);
+                    const fullDataArray = logEntry[currentValueType][layerIndex];
+                    const shape = getArrayShape(fullDataArray);
+
+                    let clickedIndexPath = Array(shape.length).fill(0); 
+
+                    // Determine the actual indices based on the clicked heatmap cell
+                    // Heatmap gives x,y coordinates which correspond to the *displayed* 2D slice.
+                    // We need to map these back to the original tensor dimensions.
+                    const xIndex = parseInt(point.x); // Index along the displayed X-axis
+                    const yIndex = parseInt(point.y); // Index along the displayed Y-axis
+                    
+                    if (shape.length === 0) { // Scalar
+                         clickedIndexPath = [];
+                    } else if (shape.length === 1) {
+                        clickedIndexPath[xDim] = xIndex;
+                    } else if (shape.length === 2) {
+                        const currentXDimOnHeatmap = (document.getElementById('dim-x-select').value == 1 && document.getElementById('dim-y-select').value == 0) ? 1 : 0;
+                        const currentYDimOnHeatmap = (document.getElementById('dim-x-select').value == 1 && document.getElementById('dim-y-select').value == 0) ? 0 : 1;
+
+                        clickedIndexPath[currentXDimOnHeatmap] = xIndex;
+                        clickedIndexPath[currentYDimOnHeatmap] = yIndex;
+                    } else { // > 2D, sliced
+                        clickedIndexPath[xDim] = xIndex;
+                        clickedIndexPath[yDim] = yIndex;
+                        clickedIndexPath[zDim] = zSliceIdx; 
+                        // Other dimensions are implicitly 0 as per plotGradientHeatmap logic
+                    }
+
+                    trackedParameterPath = {
+                        layerIndex: layerIndex,
+                        valueType: currentValueType,
+                        indexPath: clickedIndexPath,
+                        shape: shape // Store shape for context
+                    };
+
+                    const xCoordDisplay = point.x;
+                    const yCoordDisplay = point.y;
                     document.getElementById('selected-gradient-value').textContent = 
-                        `${zValue.toExponential(3)} at (x=${xCoord}, y=${yCoord})`
+                        `${zValue.toExponential(3)} at displayed (x=${xCoordDisplay}, y=${yCoordDisplay}). Path: [${clickedIndexPath.join(', ')}]`;
+                    
+                    document.getElementById('tracked-parameter-info').textContent = 
+                        `Layer: ${layerIndex}, Type: ${currentValueType}, Path: [${clickedIndexPath.join(', ')}]`;
+
+                    plotParameterEvolution();
                 }
             });
         }
@@ -429,13 +529,118 @@
 
             const layout = {
                 title: title,
-                xaxis: { title: `Selected X-Dimension (Dim ${xDim}, Size ${xLabels?.length || 'N/A'})` },
-                yaxis: { title: `Selected Y-Dimension (Dim ${yDim}, Size ${yLabels?.length || 'N/A'})` , autorange: 'reversed'},
+                xaxis: { title: `Displayed X-Dimension (Orig Dim ${xDim}, Size ${xLabels?.length || 'N/A'})` },
+                yaxis: { title: `Displayed Y-Dimension (Orig Dim ${yDim}, Size ${yLabels?.length || 'N/A'})` , autorange: 'reversed'},
                 // autosize: true, // this can sometimes fight with fixed height container
                 height: document.getElementById('gradient-plot-container').clientHeight || 500
             };
 
             Plotly.react('gradient-plot-container', plotData, layout);
+        }
+
+        function plotDistributionHistogram() {
+            const epoch = parseInt(document.getElementById('epoch-slider').value);
+            const batchIdx = parseInt(document.getElementById('batch-slider').value);
+            const layerIndex = parseInt(document.getElementById('layer-select').value);
+            const valueType = document.getElementById('value-type-select').value;
+            const histogramPlotDiv = document.getElementById('distribution-histogram-plot');
+
+            const logEntry = getLogEntry(epoch, batchIdx);
+
+            if (!logEntry || !logEntry[valueType] || !logEntry[valueType][layerIndex]) {
+                Plotly.purge(histogramPlotDiv);
+                histogramPlotDiv.innerHTML = '<div class="alert alert-warning">Data not available for histogram.</div>';
+                return;
+            }
+
+            let dataForHist = logEntry[valueType][layerIndex];
+            
+            // Flatten the array for the histogram
+            function flatten(arr) {
+                return arr.reduce((acc, val) => Array.isArray(val) ? acc.concat(flatten(val)) : acc.concat(val), []);
+            }
+
+            const flatData = Array.isArray(dataForHist) ? flatten(dataForHist) : [dataForHist]; // Handle scalar case too
+
+            const trace = {
+                x: flatData,
+                type: 'histogram',
+                marker: {
+                    color: 'rgba(100, 200, 102, 0.7)',
+                },
+            };
+            const valueTypeDisplay = document.getElementById('value-type-select').selectedOptions[0].text;
+            const layout = {
+                title: `Distribution of ${valueTypeDisplay} - Layer ${layerIndex} (Epoch ${epoch}, Batch ${batchIdx})`,
+                xaxis: { title: 'Value' },
+                yaxis: { title: 'Frequency' },
+                bargap: 0.05
+            };
+
+            Plotly.react(histogramPlotDiv, [trace], layout);
+        }
+
+        function plotParameterEvolution() {
+            const evolutionPlotDiv = document.getElementById('parameter-evolution-plot');
+
+            if (!trackedParameterPath) {
+                Plotly.purge(evolutionPlotDiv);
+                evolutionPlotDiv.innerHTML = '<div class="alert alert-info">Click on a cell in the Gradient Explorer heatmap above to track a parameter.</div>';
+                return;
+            }
+            const { layerIndex, valueType, indexPath, shape } = trackedParameterPath;
+            const valuesOverTime = [];
+            const iterations = [];
+
+            for (let i = 0; i < trainLogs.length; i++) {
+                const log = trainLogs[i];
+                if (log[valueType] && log[valueType][layerIndex]) {
+                    const dataArray = log[valueType][layerIndex];
+                    const currentShape = getArrayShape(dataArray);
+                    let shapeMatch = shape.length === currentShape.length;
+                    if(shapeMatch && shape.length > 0) {
+                        for(let d=0; d<shape.length; d++) {
+                            if(shape[d] !== currentShape[d]) {
+                                shapeMatch = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (shapeMatch) {
+                        const val = getNestedValue(dataArray, indexPath);
+                        if (val !== undefined) {
+                            valuesOverTime.push(val);
+                            iterations.push(i); 
+                        }
+                    } else {
+                        // console.warn(`Shape mismatch for tracked parameter at iteration ${i}. Expected ${shape}, got ${currentShape}`);
+                    }
+                }
+            }
+
+            if (valuesOverTime.length === 0) {
+                Plotly.purge(evolutionPlotDiv);
+                evolutionPlotDiv.innerHTML = '<div class="alert alert-warning">Could not retrieve evolution data for the selected parameter. Its shape might have changed or it wasn\'t available across all logs.</div>';
+                return;
+            }
+            
+            const valueTypeDisplay = document.getElementById('value-type-select').selectedOptions[0].text;
+            const trace = {
+                x: iterations,
+                y: valuesOverTime,
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: `Layer ${layerIndex} - Path [${indexPath.join(', ')}]`
+            };
+
+            const layout = {
+                title: `Evolution of ${valueTypeDisplay} for Layer ${layerIndex}, Path [${indexPath.join(', ')}]`,
+                xaxis: { title: 'Global Training Iteration' },
+                yaxis: { title: 'Parameter Value / Update Value' }
+            };
+
+            Plotly.react(evolutionPlotDiv, [trace], layout);
         }
 
     </script>
