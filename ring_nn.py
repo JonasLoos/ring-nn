@@ -144,6 +144,27 @@ class Tensor:
                 self._grad = self._grad + out._grad.reshape(self.data.shape)
         out._backward = _backward
         return out
+    
+    def unsqueeze(self, axis):
+        out = self.__class__(np.expand_dims(self.data, axis=axis), requires_grad=self._rg)
+        out._prev = {self}
+
+        def _backward():
+            if self._rg:
+                self._grad += out._grad.squeeze(axis)
+        out._backward = _backward
+        return out
+    
+    def stack(self, *tensors, axis=0):
+        out = self.__class__(np.stack([t.data for t in tensors], axis=axis), requires_grad=self._rg or any(t._rg for t in tensors))
+        out._prev = set(tensors)
+
+        def _backward():
+            for t in [self, *tensors]:
+                if t._rg:
+                    t._grad += Tensor._unbroadcast_gradient(out._grad, t.shape)
+        out._backward = _backward
+        return out
 
     @staticmethod
     def _unbroadcast_gradient(grad_output, original_input_shape):
@@ -180,8 +201,9 @@ class Tensor:
 
 class RingTensor(Tensor):
     dtype = np.int8
-    min_value = -128
-    max_value = 127
+    # dtype = np.int16
+    min_value = -np.iinfo(dtype).max
+    max_value = np.iinfo(dtype).max
 
     def __neg__(self) -> Self:
         # we need to make sure -128 -> 127
@@ -195,6 +217,7 @@ class RingTensor(Tensor):
         return out
 
     def square(self) -> Self:
+        # square activation with sign: [-1, 1] -> [-1, 1]
         out = RingTensor((self.data.astype(np.float32) / self.min_value)**2 * -self.min_value * np.sign(self.data), requires_grad=self._rg)
         out._prev = {self}
 
@@ -205,7 +228,7 @@ class RingTensor(Tensor):
         return out
 
     def sin(self) -> Self:
-        # double sigmoid-like activation
+        # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x); [-1, 1] -> [-2, 2]
         x = self.data.astype(np.float32) / (self.max_value - self.min_value)
         activation = ((np.sin(x*np.pi - np.pi/2) + 1) * np.sign(x) * self.max_value).clip(self.min_value, self.max_value)
         out = RingTensor(activation, requires_grad=self._rg)
@@ -220,26 +243,19 @@ class RingTensor(Tensor):
         return out
 
     def softmin(self, axis=0) -> Self:
-        abs_x = np.abs(self.data.astype(np.float32))              # |x|
-        S     = abs_x.sum(axis=axis, keepdims=True)               # Σ|x|
-        n     = abs_x / S                                         # normalised |x|
-        exp_n = np.exp(-n)
-        Z     = exp_n.sum(axis=axis, keepdims=True)
-        y     = exp_n / Z                                         # soft-min
-        out   = RingTensor((y * self.max_value).clip(self.min_value, self.max_value).astype(self.dtype), requires_grad=self._rg)
+        abs_x = np.abs(self.data.astype(np.float32))         # |x|
+        S     = abs_x.sum(axis, keepdims=True)               # Σ|x|
+        x_exp = np.exp(-abs_x / S)                           # exp(-norm(|x|))
+        y     = x_exp / x_exp.sum(axis, keepdims=True)       # soft-min
+        out   = RingTensor((y * self.max_value).clip(self.min_value, self.max_value), requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                g_y  = out._grad.astype(np.float32) / self.max_value   # dL/dy
-
-                dot  = np.sum(g_y * y, axis=axis, keepdims=True)
-                g_n  = y * (dot - g_y)                                 # dL/dn
-
-                dot_a = np.sum(g_n * abs_x, axis=axis, keepdims=True)
-                g_abs = (S * g_n - dot_a) / (S * S)                    # dL/d|x|
-
-                self._grad += g_abs * np.sign(self.data)               # back through |·|
+                g_y = out._grad.astype(np.float32) / self.max_value                   # dL/dy
+                g_n = y * ((g_y * y).sum(axis, keepdims=True) - g_y)                  # dL/dn
+                g_abs = (S * g_n - (g_n * abs_x).sum(axis, keepdims=True)) / (S * S)  # dL/d|x|
+                self._grad += g_abs * np.sign(self.data)                              # back through |·|
 
         out._backward = _backward
         return out
@@ -325,9 +341,10 @@ class RingNN:
 
     def __call__(self, x):
         for w in self.weights:
-            x = (x - w).square().mean(axis=0).reshape((-1, 1))
+            x = (x - w).square().mean(axis=-2).unsqueeze(-1)
         # invert low and high values
-        x = x + RingTensor.full(x.shape, RingTensor.min_value)
+        x = x + RingTensor.min_value
+        # convert to real for better numerical stability during loss calculation
         return x.real().abs()
 
     def save(self, path):
@@ -343,15 +360,13 @@ class RingNN:
         return nn
 
 
-def load_mnist():
+def load_mnist(batch_size=None):
     mnist_url = 'https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz'
     mnist_path = 'mnist.npz'
 
     if not os.path.exists(mnist_path):
         print("Downloading MNIST dataset...")
         urllib.request.urlretrieve(mnist_url, mnist_path)
-
-    data = np.load(mnist_path)
 
     def convert_x(data):
         return [RingTensor(x).reshape((784, 1)) for x in data]
@@ -364,56 +379,54 @@ def load_mnist():
             result.append(RealTensor(tmp))
         return result
 
+    data = np.load(mnist_path)
     x_train, y_train = convert_x(data['x_train']), convert_y(data['y_train'])
     x_test, y_test = convert_x(data['x_test']), convert_y(data['y_test'])
 
+    if batch_size is not None:
+        def batch(data):
+            return [Tensor.stack(*data[i:i+batch_size]) for i in range(0, len(data), batch_size)]
+        x_train, y_train = batch(x_train), batch(y_train)
+        x_test, y_test = batch(x_test), batch(y_test)
+
     return x_train, y_train, x_test, y_test
 
-
 def train(nn, epochs, lr, lr_decay):
-    x_train, y_train, x_test, y_test = load_mnist()
+    x_train, y_train, x_test, y_test = load_mnist(batch_size=500)
 
     for epoch in range(epochs):
         print("-" * 100)
         print(f"Epoch {epoch}")
         print("-" * 100)
-        loss = RealTensor([0])
-        accuracy = 0
         for i, (x, y) in enumerate(zip(x_train, y_train)):
             # loss = loss + (nn(x) - y).square().abs().mean()
             # loss = loss + nn(x).cross_entropy(y)
-            loss = loss + ((nn(x) - RingTensor.max_value*y).abs() * (1 + 9*y)).mean()  # balanced loss
-            accuracy += nn(x).data.argmax() == y.abs().data.argmax()
-            if i % 500 == 0:
-                avg_grandient_change = 0
-                loss.backward()
-                for w in nn.weights:
-                    w.data = w.data + w._grad * lr
-                    # print(w._grad)
-                    # print(np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape))
-                    avg_grandient_change += np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape)
-                    w.reset_grad()
-                avg_grandient_change /= len(nn.weights)
-                print(f"[{i:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy / 500:6.2%} | Avg. gradient change: {avg_grandient_change:7.3f} | lr: {lr:.2e}")
-                loss = RealTensor([0])
-                accuracy = 0
-                lr *= lr_decay
+            loss = ((nn(x) - RingTensor.max_value*y).abs() * (1 + 9*y)).mean()  # balanced loss
+            accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
+            loss.backward()
+            avg_grandient_change = np.mean([np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape) for w in nn.weights])
+            for w in nn.weights:
+                w.data = w.data + w._grad * lr
+                w.reset_grad()
+            print(f"\r[{i+1:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} | lr: {lr:.2e}", end="")
+            loss = RealTensor([0])
+            lr *= lr_decay
 
         # Test on validation set
-        test_loss = RealTensor([0])
+        test_loss = 0
         test_accuracy = 0
         for x, y in zip(x_test, y_test):
             # test_loss = test_loss + (nn(x) - y).square().abs().mean()
             # test_loss = test_loss + nn(x).cross_entropy(y)
-            test_loss = test_loss + ((nn(x) - 127*y).abs() * (1 + 9*y)).mean()
-            test_accuracy += nn(x).data.argmax() == y.abs().data.argmax()
-        print(f"\nTest loss: {test_loss.data.item()} | accuracy: {test_accuracy / len(x_test):6.2%}")
+            test_loss = test_loss + ((nn(x) - RingTensor.max_value*y).abs() * (1 + 9*y)).mean().data.item()
+            test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
+        print(f"\nTest loss: {test_loss / len(x_test)} | accuracy: {test_accuracy / len(x_test):6.2%}")
 
 
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=1e+5, lr_decay=0.99)
+        train(nn, epochs=10, lr=5e+6, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
