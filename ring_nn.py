@@ -143,7 +143,7 @@ class Tensor:
         def _backward():
             if self._rg:
                 # Reshape the gradient back to the original shape
-                self._grad = self._grad + out._grad.reshape(self.data.shape)
+                self._grad += out._grad.reshape(self.data.shape)
         out._backward = _backward
         return out
 
@@ -338,14 +338,25 @@ class RealTensor(Tensor):
         return out
 
     def cross_entropy(self, other: Selflike) -> Self:
-        out = RealTensor(np.mean(-other.as_float() * np.log(self.as_float())), requires_grad=self._rg)
+        logits = self.as_float()
+        tgt = other.as_float()
+        n = logits.shape[0]
+
+        # numerically-stable soft-max
+        shift = logits - logits.max(axis=1, keepdims=True)
+        exps  = np.exp(shift)
+        probs = exps / exps.sum(axis=1, keepdims=True)
+
+        # cross-entropy loss
+        loss_val = -np.sum(tgt * np.log(probs + 1e-20)) / n
+        out = RealTensor(loss_val, requires_grad=self._rg or other._rg)
         out._prev = {self, other}
 
         def _backward():
             if self._rg:
-                self._grad += -other.as_float() / self.as_float()
+                self._grad += out._grad * (probs - tgt) / n
             if other._rg:
-                other._grad += np.log(self.as_float())
+                other._grad += out._grad * (-np.log(probs + 1e-20) / n)
         out._backward = _backward
         return out
 
@@ -514,9 +525,9 @@ def print_frac(a, b):
 def train(nn, epochs, lr, lr_decay, train_logs):
     train_dl, test_dl = load_mnist(batch_size=1000)
 
-    loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
+    # loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
     # loss_fn = lambda a, b: ((a - b) ** 2).mean()  # MSE loss
-    # loss_fn = lambda a, b: a.cross_entropy(b)  # cross-entropy loss
+    loss_fn = lambda a, b: a.cross_entropy(b)  # cross-entropy loss
 
     optimizer = SGD(nn, lr, lr_decay)
     # optimizer = Adam(nn, lr, lr_decay)
@@ -525,8 +536,9 @@ def train(nn, epochs, lr, lr_decay, train_logs):
         print("-" * 100)
         print(f"Epoch {print_frac(epoch+1, epochs)}")
         for i, (x, y) in enumerate(train_dl):
-            loss = loss_fn(nn(x), y)
-            accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
+            pred = nn(x)
+            loss = loss_fn(pred, y)
+            accuracy = (pred.data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
             opt_logs = optimizer()
             print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {opt_logs['abs_update_final']:.2e} (f: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
