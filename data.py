@@ -64,3 +64,58 @@ def load_mnist(batch_size=1):
         Dataloader(x_train, y_train, batch_size=batch_size),
         Dataloader(x_test, y_test, batch_size=batch_size),
     )
+
+
+
+def load_cifar10(batch_size=1):
+    cifar10_url = 'https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
+    cifar10_path = 'cifar-10-python.tar.gz'
+    cifar10_dir = 'cifar-10-batches-py'
+
+    if not os.path.exists(cifar10_dir):
+        if not os.path.exists(cifar10_path):
+            print("Downloading CIFAR-10 dataset...")
+            urllib.request.urlretrieve(cifar10_url, cifar10_path)
+        
+        print("Extracting CIFAR-10 dataset...")
+        import tarfile
+        with tarfile.open(cifar10_path) as tar:
+            tar.extractall()
+
+    def unpickle(file):
+        import pickle
+        with open(file, 'rb') as fo:
+            dict = pickle.load(fo, encoding='bytes')
+        return dict
+
+    # Load training data
+    x_train = []
+    y_train = []
+    for i in range(1, 6):
+        batch = unpickle(f'{cifar10_dir}/data_batch_{i}')
+        x_train.extend(batch[b'data'].reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1))
+        y_train.extend(batch[b'labels'])
+
+    # Load test data
+    test_batch = unpickle(f'{cifar10_dir}/test_batch')
+    x_test = test_batch[b'data'].reshape(-1, 3, 32, 32).transpose(0, 2, 3, 1)
+    y_test = test_batch[b'labels']
+
+    def convert_x(data):
+        return [RingTensor(x / 255) for x in data]
+
+    def convert_y(data):
+        result = []
+        for y in data:
+            tmp = np.zeros((10, 1))
+            tmp[y, 0] = 1
+            result.append(RealTensor(tmp))
+        return result
+
+    x_train, y_train = convert_x(np.array(x_train)), convert_y(y_train)
+    x_test, y_test = convert_x(np.array(x_test)), convert_y(y_test)
+
+    return (
+        Dataloader(x_train, y_train, batch_size=batch_size),
+        Dataloader(x_test, y_test, batch_size=batch_size),
+    )

@@ -214,6 +214,7 @@ class Tensor:
 class RingTensor(Tensor):
     # dtype = np.int8
     dtype = np.int16
+    # dtype = np.int32
     min_value = np.iinfo(dtype).min
     max_value = np.iinfo(dtype).max
     # [min, max] corresponds to [-1, 1], with -1 and 1 being next to each other the number ring

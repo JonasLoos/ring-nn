@@ -1,7 +1,7 @@
 import pickle
 from tensor import RingTensor, RealTensor
 from optimizer import SGD, Adam
-from data import load_mnist
+from data import load_cifar10
 
 
 class RingNN:
@@ -31,14 +31,11 @@ def print_frac(a, b):
 
 
 def train(nn, epochs, lr, lr_decay, train_logs):
-    train_dl, test_dl = load_mnist(batch_size=1000)
+    train_dl, test_dl = load_cifar10(batch_size=1000)
 
-    # loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
-    # loss_fn = lambda a, b: ((a - b) ** 2).mean()  # MSE loss
     loss_fn = lambda a, b: a.cross_entropy(b)  # cross-entropy loss
 
     optimizer = SGD(nn, lr, lr_decay)
-    # optimizer = Adam(nn, lr, lr_decay)
 
     for epoch in range(epochs):
         print("-" * 100)
@@ -72,9 +69,8 @@ def train(nn, epochs, lr, lr_decay, train_logs):
         print(f"\n{len(print_frac(i+1, len(train_dl)))*' '}   Test  loss: {test_loss / len(test_dl):7.4f} | accuracy: {test_accuracy / len(test_dl):6.2%}")
 
 
-
 if __name__ == '__main__':
-    nn = RingNN([784, 10])
+    nn = RingNN([3072, 10])  # CIFAR-10 images are 32x32x3 = 3072 pixels
     try:
         train_logs = []
         train(nn, epochs=10, lr=40.0, lr_decay=0.998, train_logs=train_logs)
@@ -82,6 +78,6 @@ if __name__ == '__main__':
         pass
     finally:
         print("\nSaving model...")
-        nn.save('ring_nn.pkl')
-        with open('train_logs.pkl', 'wb') as f:
+        nn.save('ring_nn_cifar10.pkl')
+        with open('train_logs_cifar10.pkl', 'wb') as f:
             pickle.dump(train_logs, f)

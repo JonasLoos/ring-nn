@@ -2,3 +2,6 @@ __pycache__
 
 *.npz
 *.pkl
+*.tar.gz
+
+cifar-10-batches-py/
