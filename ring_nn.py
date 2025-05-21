@@ -6,11 +6,6 @@ import pickle
 from functools import wraps
 
 
-def default_tensor_backward_op():
-    """Default backward operation for a Tensor, does nothing."""
-    pass
-
-
 def convert_other(f):
     '''decorator to convert other to a Tensor if it is not already'''
     @wraps(f)
@@ -151,7 +146,7 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                self._grad += out._grad.squeeze(axis)
+                self._grad += np.squeeze(out._grad, axis=axis)
         out._backward = _backward
         return out
     
@@ -161,18 +156,22 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                self._grad += out._grad.expand_dims(axis)
+                self._grad += np.expand_dims(out._grad, axis=axis)
         out._backward = _backward
         return out
     
-    def stack(self, *tensors, axis=0):
-        out = self.__class__(np.stack([t.data for t in tensors], axis=axis), requires_grad=self._rg or any(t._rg for t in tensors))
+    @classmethod
+    def stack(cls, *tensors, axis=0):
+        out = cls(np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
         out._prev = set(tensors)
 
         def _backward():
-            for t in [self, *tensors]:
+            for i, t in enumerate(tensors):
                 if t._rg:
-                    t._grad += Tensor._unbroadcast_gradient(out._grad, t.shape)
+                    # We need to slice the gradient corresponding to this tensor
+                    slices = [slice(None)] * out._grad.ndim
+                    slices[axis] = i
+                    t._grad += Tensor._unbroadcast_gradient(out._grad[tuple(slices)], t.shape)
         out._backward = _backward
         return out
 
@@ -233,7 +232,15 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad += out._grad * 2 * self.data.astype(np.float32) * np.sign(self.data)
+                # The forward operation is: (data / min_value)^2 * -min_value * sign(data)
+                # Let x_norm = data / min_value
+                # out = x_norm^2 * -min_value * sign(data)
+                # d_out/d_x_norm = 2 * x_norm * -min_value * sign(data)
+                # d_x_norm/d_data = 1 / min_value
+                # d_out/d_data = (2 * data / min_value) * -min_value * sign(data) * (1 / min_value)
+                #              = -2 * data * sign(data) / min_value
+                local_grad = -2 * self.data.astype(np.float32) * np.sign(self.data) / self.min_value
+                self._grad += out._grad * local_grad
         out._backward = _backward
         return out
 
@@ -246,8 +253,14 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                x = self.data.astype(np.float32)
-                local_grad = np.cos(x*np.pi - np.pi/2) * np.pi * np.sign(x) * 0.5
+                x_normalized = self.data.astype(np.float32) / (self.max_value - self.min_value)
+                # Forward: ((np.sin(x_normalized*np.pi - np.pi/2) + 1) * np.sign(x_normalized) * self.max_value)
+                # Derivative of sin(u*pi - pi/2) is cos(u*pi - pi/2) * pi
+                # Derivative of (sin(u*pi - pi/2) + 1) is cos(u*pi - pi/2) * pi
+                # Chain rule: d_out/d_x_normalized = [cos(x_normalized*np.pi - np.pi/2) * np.pi] * np.sign(x_normalized) * self.max_value
+                # Chain rule: d_x_normalized/d_data = 1 / (self.max_value - self.min_value)
+                local_grad_inner_sin = np.cos(x_normalized*np.pi - np.pi/2) * np.pi
+                local_grad = local_grad_inner_sin * np.sign(self.data.astype(np.float32)) * self.max_value / (self.max_value - self.min_value)
                 self._grad += out._grad * local_grad
         out._backward = _backward
         return out
@@ -395,7 +408,7 @@ def load_mnist(batch_size=None):
 
     if batch_size is not None:
         def batch(data):
-            return [Tensor.stack(*data[i:i+batch_size]) for i in range(0, len(data), batch_size)]
+            return [data[0].__class__.stack(*data[i:i+batch_size]) for i in range(0, len(data), batch_size)]
         x_train, y_train = batch(x_train), batch(y_train)
         x_test, y_test = batch(x_test), batch(y_test)
 
@@ -419,7 +432,6 @@ def train(nn, epochs, lr, lr_decay):
                 w.data = w.data + w._grad * lr
                 w.reset_grad()
             print(f"\r[{i+1:05}/{len(x_train)}]: loss: {loss.data.item():10.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {avg_grandient_change:.2e} | lr: {lr:.2e}", end="")
-            loss = RealTensor([0])
             lr *= lr_decay
 
         # Test on validation set
@@ -436,7 +448,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=5e+6, lr_decay=0.99)
+        train(nn, epochs=10, lr=5e+8, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
