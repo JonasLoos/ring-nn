@@ -155,6 +155,16 @@ class Tensor:
         out._backward = _backward
         return out
     
+    def squeeze(self, axis):
+        out = self.__class__(np.squeeze(self.data, axis=axis), requires_grad=self._rg)
+        out._prev = {self}
+
+        def _backward():
+            if self._rg:
+                self._grad += out._grad.expand_dims(axis)
+        out._backward = _backward
+        return out
+    
     def stack(self, *tensors, axis=0):
         out = self.__class__(np.stack([t.data for t in tensors], axis=axis), requires_grad=self._rg or any(t._rg for t in tensors))
         out._prev = set(tensors)
