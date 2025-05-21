@@ -82,7 +82,6 @@ class Tensor:
         out._backward = _backward
         return out
 
-    @convert_other
     def __sub__(self, other: Selflike) -> Self:
         return self + (-other)
 
@@ -95,7 +94,7 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                self._grad += out._grad
+                self._grad += -out._grad
         out._backward = _backward
         return out
 
@@ -215,13 +214,12 @@ class RingTensor(Tensor):
     max_value = np.iinfo(dtype).max
 
     def __neg__(self) -> Self:
-        # we need to make sure -128 -> 127
-        out = RingTensor(-self.data.clip(-self.max_value, self.max_value), requires_grad=self._rg)
+        out = RingTensor(-self.data, requires_grad=self._rg)
         out._prev = {self}
 
         def _backward():
             if self._rg:
-                self._grad += out._grad
+                self._grad += -out._grad
         out._backward = _backward
         return out
 
@@ -232,14 +230,7 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                # The forward operation is: (data / min_value)^2 * -min_value * sign(data)
-                # Let x_norm = data / min_value
-                # out = x_norm^2 * -min_value * sign(data)
-                # d_out/d_x_norm = 2 * x_norm * -min_value * sign(data)
-                # d_x_norm/d_data = 1 / min_value
-                # d_out/d_data = (2 * data / min_value) * -min_value * sign(data) * (1 / min_value)
-                #              = -2 * data * sign(data) / min_value
-                local_grad = -2 * self.data.astype(np.float32) * np.sign(self.data) / self.min_value
+                local_grad = -2 * self.data.astype(np.float32) * np.sign(self.data.astype(np.float32)) / self.min_value
                 self._grad += out._grad * local_grad
         out._backward = _backward
         return out
@@ -253,14 +244,37 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
-                x_normalized = self.data.astype(np.float32) / (self.max_value - self.min_value)
-                # Forward: ((np.sin(x_normalized*np.pi - np.pi/2) + 1) * np.sign(x_normalized) * self.max_value)
-                # Derivative of sin(u*pi - pi/2) is cos(u*pi - pi/2) * pi
-                # Derivative of (sin(u*pi - pi/2) + 1) is cos(u*pi - pi/2) * pi
-                # Chain rule: d_out/d_x_normalized = [cos(x_normalized*np.pi - np.pi/2) * np.pi] * np.sign(x_normalized) * self.max_value
-                # Chain rule: d_x_normalized/d_data = 1 / (self.max_value - self.min_value)
-                local_grad_inner_sin = np.cos(x_normalized*np.pi - np.pi/2) * np.pi
-                local_grad = local_grad_inner_sin * np.sign(self.data.astype(np.float32)) * self.max_value / (self.max_value - self.min_value)
+                denom = float(self.max_value - self.min_value)
+                # Avoid division by zero if max_value can equal min_value (should not happen for RingTensor)
+                if abs(denom) < 1e-9: 
+                    denom = 1e-9 if denom >= 0 else -1e-9
+
+                x_norm = self.data.astype(np.float32) / denom 
+                sign_x_norm = np.sign(x_norm) 
+
+                # Recompute intermediate act_float_val from forward pass for clip derivative
+                val_for_sin_calc = x_norm * np.pi - np.pi/2
+                sin_result = np.sin(val_for_sin_calc)
+                act_float_val = (sin_result + 1) * sign_x_norm * self.max_value
+                
+                # Derivative of final_clip(act_float_val) w.r.t act_float_val
+                grad_clip_wrt_act_float = np.zeros_like(act_float_val, dtype=np.float32)
+                # PyTorch behavior for clip gradient: 1 if min_val <= x <= max_val, else 0.
+                clip_condition = (act_float_val >= self.min_value) & (act_float_val <= self.max_value)
+                grad_clip_wrt_act_float[clip_condition] = 1.0
+                
+                # Derivative of act_float_val w.r.t x_norm
+                # d/du [ (sin(u*pi-pi/2)+1) * sign(u) * C ]
+                # Assuming sign(u) is locally constant (or derivative of sign(u) handled by sign_x_norm=0 if u=0):
+                # [cos(u*pi-pi/2)*pi] * sign(u) * C
+                cos_term = np.cos(val_for_sin_calc) * np.pi
+                d_act_float_dxn = cos_term * sign_x_norm * self.max_value
+                
+                # Derivative of x_norm w.r.t self.data
+                d_xn_d_data = 1.0 / denom
+                
+                local_grad = grad_clip_wrt_act_float * d_act_float_dxn * d_xn_d_data
+                
                 self._grad += out._grad * local_grad
         out._backward = _backward
         return out
@@ -318,6 +332,12 @@ class RealTensor(Tensor):
 
     def __rmul__(self, other: Selflike) -> Self:
         return self * other
+    
+    def __truediv__(self, other: Selflike) -> Self:
+        return self * other ** -1
+    
+    def __rtruediv__(self, other: Selflike) -> Self:
+        return other * self ** -1
 
     @convert_other
     def __pow__(self, other: Selflike) -> Self:
@@ -364,11 +384,8 @@ class RingNN:
 
     def __call__(self, x):
         for w in self.weights:
-            x = (x - w).square().mean(axis=-2).unsqueeze(-1)
-        # invert low and high values
-        x = x + RingTensor.min_value
-        # convert to real for better numerical stability during loss calculation
-        return x.real().abs()
+            x = (x + w).square().mean(axis=-2).unsqueeze(-1)
+        return 1 + x.real().abs() / RingTensor.min_value
 
     def save(self, path):
         with open(path, 'wb') as f:
@@ -424,7 +441,7 @@ def train(nn, epochs, lr, lr_decay):
         for i, (x, y) in enumerate(zip(x_train, y_train)):
             # loss = loss + (nn(x) - y).square().abs().mean()
             # loss = loss + nn(x).cross_entropy(y)
-            loss = ((nn(x) - RingTensor.max_value*y).abs() * (1 + 9*y)).mean()  # balanced loss
+            loss = ((nn(x) - y).abs() * (1 + 9*y)).mean()  # balanced loss
             accuracy = (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
             loss.backward()
             avg_grandient_change = np.mean([np.abs((w._grad * lr).astype(np.int8)).sum() / np.prod(w.shape) for w in nn.weights])
@@ -440,7 +457,7 @@ def train(nn, epochs, lr, lr_decay):
         for x, y in zip(x_test, y_test):
             # test_loss = test_loss + (nn(x) - y).square().abs().mean()
             # test_loss = test_loss + nn(x).cross_entropy(y)
-            test_loss = test_loss + ((nn(x) - RingTensor.max_value*y).abs() * (1 + 9*y)).mean().data.item()
+            test_loss = test_loss + ((nn(x) - y).abs() * (1 + 9*y)).mean().data.item()
             test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
         print(f"\nTest loss: {test_loss / len(x_test)} | accuracy: {test_accuracy / len(x_test):6.2%}")
 
@@ -448,7 +465,7 @@ def train(nn, epochs, lr, lr_decay):
 def ring_nn():
     nn = RingNN([784, 10])
     try:
-        train(nn, epochs=10, lr=5e+8, lr_decay=0.99)
+        train(nn, epochs=10, lr=5e+10, lr_decay=0.99)
     except KeyboardInterrupt:
         pass
     finally:
