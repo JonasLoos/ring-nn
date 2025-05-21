@@ -25,7 +25,7 @@ def get_data():
     try:
         with open('train_logs.pkl', 'rb') as f:
             train_logs = pickle.load(f)
-        
+
         # Convert numpy arrays to lists for JSON serialization
         train_logs_serializable = convert_numpy_to_list(train_logs)
         return jsonify(train_logs_serializable)
@@ -35,4 +35,4 @@ def get_data():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True)

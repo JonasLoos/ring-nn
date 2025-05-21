@@ -206,7 +206,7 @@ body { padding-top: 20px; }
             const losses = trainLogs.map(log => log.loss);
             const accuracies = trainLogs.map(log => log.accuracy);
             const lrs = trainLogs.map(log => log.lr);
-            const updateRatios = trainLogs.map(log => 
+            const updateRatios = trainLogs.map(log =>
                 log.abs_update_float > 0 ? log.abs_update_final / log.abs_update_float : 0
             );
 
@@ -315,7 +315,7 @@ body { padding-top: 20px; }
                 if (trackedParameterPath) { // If a parameter is being tracked, update its evolution plot for the new value type
                     trackedParameterPath.valueType = document.getElementById('value-type-select').value;
                     plotParameterEvolution();
-                     document.getElementById('tracked-parameter-info').textContent = 
+                     document.getElementById('tracked-parameter-info').textContent =
                         `Layer: ${trackedParameterPath.layerIndex}, Type: ${trackedParameterPath.valueType}, Path: [${trackedParameterPath.indexPath.join(', ')}]`;
                 }
             });
@@ -346,14 +346,14 @@ body { padding-top: 20px; }
                     const fullDataArray = logEntry[currentValueType][layerIndex];
                     const shape = getArrayShape(fullDataArray);
 
-                    let clickedIndexPath = Array(shape.length).fill(0); 
+                    let clickedIndexPath = Array(shape.length).fill(0);
 
                     // Determine the actual indices based on the clicked heatmap cell
                     // Heatmap gives x,y coordinates which correspond to the *displayed* 2D slice.
                     // We need to map these back to the original tensor dimensions.
                     const xIndex = parseInt(point.x); // Index along the displayed X-axis
                     const yIndex = parseInt(point.y); // Index along the displayed Y-axis
-                    
+
                     if (shape.length === 0) { // Scalar
                          clickedIndexPath = [];
                     } else if (shape.length === 1) {
@@ -367,7 +367,7 @@ body { padding-top: 20px; }
                     } else { // > 2D, sliced
                         clickedIndexPath[xDim] = xIndex;
                         clickedIndexPath[yDim] = yIndex;
-                        clickedIndexPath[zDim] = zSliceIdx; 
+                        clickedIndexPath[zDim] = zSliceIdx;
                         // Other dimensions are implicitly 0 as per plotGradientHeatmap logic
                     }
 
@@ -380,10 +380,10 @@ body { padding-top: 20px; }
 
                     const xCoordDisplay = point.x;
                     const yCoordDisplay = point.y;
-                    document.getElementById('selected-gradient-value').textContent = 
+                    document.getElementById('selected-gradient-value').textContent =
                         `${zValue.toExponential(3)} at displayed (x=${xCoordDisplay}, y=${yCoordDisplay}). Path: [${clickedIndexPath.join(', ')}]`;
-                    
-                    document.getElementById('tracked-parameter-info').textContent = 
+
+                    document.getElementById('tracked-parameter-info').textContent =
                         `Layer: ${layerIndex}, Type: ${currentValueType}, Path: [${clickedIndexPath.join(', ')}]`;
 
                     plotParameterEvolution();
@@ -397,12 +397,12 @@ body { padding-top: 20px; }
             let current = arr;
             while (Array.isArray(current)) {
                 shape.push(current.length);
-                current = current[0]; 
+                current = current[0];
                 if (shape.length > 10) break; // Safety break for very deep or non-uniform arrays
             }
             return shape;
         }
-        
+
         // Helper to get a value from a potentially nested array using a path of indices
         function getNestedValue(arr, pathIndices) {
             let val = arr;
@@ -430,7 +430,7 @@ body { padding-top: 20px; }
             const batchIdx = parseInt(document.getElementById('batch-slider').value);
             const layerIndex = parseInt(document.getElementById('layer-select').value);
             const valueType = document.getElementById('value-type-select').value; // 'weights', 'updates_final', 'updates_float'
-            
+
             const logEntry = getLogEntry(epoch, batchIdx);
             if (!logEntry || !logEntry[valueType] || !logEntry[valueType][layerIndex]) {
                 Plotly.purge('gradient-plot-container');
@@ -477,9 +477,9 @@ body { padding-top: 20px; }
             if (xDim >=0 && xDim < shape.length) selectedDims.add(xDim);
             if (yDim >=0 && yDim < shape.length) selectedDims.add(yDim);
             if (zDim >=0 && zDim < shape.length && shape.length > 2) selectedDims.add(zDim);
-            
-            if ((shape.length === 1 && selectedDims.size !== 1) || 
-                (shape.length === 2 && selectedDims.size !== 2 && new Set([xDim,yDim]).size !== 2) || 
+
+            if ((shape.length === 1 && selectedDims.size !== 1) ||
+                (shape.length === 2 && selectedDims.size !== 2 && new Set([xDim,yDim]).size !== 2) ||
                 (shape.length > 2 && selectedDims.size !== 3 && new Set([xDim,yDim, zDim]).size !== 3)) {
                 // Reset to default if invalid selection due to dynamic changes
                 xDim = 0;
@@ -491,7 +491,7 @@ body { padding-top: 20px; }
                 if (dimZSelect.options.length > 2 && zDim !== -1) dimZSelect.value = zDim;
                 else if (dimZSelect.options.length > 0) dimZSelect.value = dimZSelect.options[0].value;
             }
-            
+
             zSliceInput.max = (zDim !== -1 && shape[zDim] > 0) ? shape[zDim] - 1 : 0;
             if (zSliceIdx > parseInt(zSliceInput.max)) {
                 zSliceIdx = parseInt(zSliceInput.max);
@@ -532,12 +532,12 @@ body { padding-top: 20px; }
                         fixedDims.push(i);
                     }
                 }
-                
+
                 // This part is tricky: we need to extract a 2D slice
                 // based on xDim, yDim, zDim, and zSliceIdx.
                 // The remaining dimensions are effectively fixed at index 0 for this visualization.
                 // A more robust slicer would allow controlling all fixed_dims indices.
-                
+
                 const xSize = shape[xDim];
                 const ySize = shape[yDim];
                 heatmapData = Array(ySize).fill(null).map(() => Array(xSize).fill(0));
@@ -596,7 +596,7 @@ body { padding-top: 20px; }
             }
 
             let dataForHist = logEntry[valueType][layerIndex];
-            
+
             // Flatten the array for the histogram
             function flatten(arr) {
                 return arr.reduce((acc, val) => Array.isArray(val) ? acc.concat(flatten(val)) : acc.concat(val), []);
@@ -653,7 +653,7 @@ body { padding-top: 20px; }
                         const val = getNestedValue(dataArray, indexPath);
                         if (val !== undefined) {
                             valuesOverTime.push(val);
-                            iterations.push(i); 
+                            iterations.push(i);
                         }
                     } else {
                         // console.warn(`Shape mismatch for tracked parameter at iteration ${i}. Expected ${shape}, got ${currentShape}`);
@@ -666,7 +666,7 @@ body { padding-top: 20px; }
                 evolutionPlotDiv.innerHTML = '<div class="alert alert-warning">Could not retrieve evolution data for the selected parameter. Its shape might have changed or it wasn\'t available across all logs.</div>';
                 return;
             }
-            
+
             const valueTypeDisplay = document.getElementById('value-type-select').selectedOptions[0].text;
             const trace = {
                 x: iterations,
@@ -818,4 +818,4 @@ body { padding-top: 20px; }
 
     </script>
 </body>
-</html> 
+</html>
