@@ -358,6 +358,53 @@ class TestRealTensorOps(unittest.TestCase):
         loss_torch.sum().backward()
         self.assertTrue(np.allclose(preds_rt._grad, preds_torch.grad.numpy(), atol=1e-5))
 
+    def test_sliding_window_2d(self):
+        # Create input data in NHWC format (batch, height, width, channels)
+        data = np.arange(16).reshape(1, 4, 4, 1).astype(np.float32)
+        
+        # Our custom tensor
+        rt = RealTensor(data, requires_grad=True)
+        
+        # Test case 1: No padding, stride=1
+        window_size = 2
+        padding = 0
+        stride = 1
+        
+        # Our sliding window implementation
+        windows = rt.sliding_window_2d(window_size=window_size, padding=padding, stride=stride)
+        
+        # Check shape
+        self.assertEqual(windows.shape, (1, 3, 3, 1, 2, 2))
+        
+        # Check output values
+        expected_windows = np.zeros((1, 3, 3, 1, 2, 2), dtype=np.float32)
+        for i in range(3):
+            for j in range(3):
+                expected_windows[0, i, j, 0] = data[0, i:i+2, j:j+2, 0]
+        
+        self.assertTrue(np.allclose(windows.data, expected_windows))
+        
+        # Test backward pass - only verify shape
+        windows.sum().backward()
+        self.assertEqual(rt._grad.shape, data.shape)
+        
+        # Test case 2: With padding, stride=1
+        rt.reset_grad()
+        
+        padding = 1
+        windows = rt.sliding_window_2d(window_size=window_size, padding=padding, stride=stride)
+        self.assertEqual(windows.shape, (1, 5, 5, 1, 2, 2))
+        
+        # Test case 3: No padding, stride=2
+        rt.reset_grad()
+        
+        padding = 0
+        stride = 2
+        windows = rt.sliding_window_2d(window_size=window_size, padding=padding, stride=stride)
+        self.assertEqual(windows.shape, (1, 2, 2, 1, 2, 2))
+
+        # TODO: test backward pass values by comparing with torch
+
 
 class TestRingTensorOps(unittest.TestCase):
     RT_DTYPE = RingTensor.dtype
@@ -513,6 +560,49 @@ class TestRingTensorOps(unittest.TestCase):
         # Check conversion back to ring tensor
         rt_from_real = RingTensor(real_t.as_float())
         self.assertTrue(np.allclose(rt_from_real.data, data))
+
+    def test_sliding_window_2d_ring(self):
+        # Create input data in NHWC format (batch, height, width, channels)
+        data = np.arange(16, dtype=RingTensor.dtype).reshape(1, 4, 4, 1)
+        
+        # Our custom tensor
+        rt = RingTensor(raw_data=data, requires_grad=True)
+        
+        # Test case 1: No padding, stride=1
+        window_size = 2
+        padding = 0
+        stride = 1
+        
+        # Our sliding window implementation
+        windows = rt.sliding_window_2d(window_size=window_size, padding=padding, stride=stride)
+        
+        # Check shape
+        self.assertEqual(windows.shape, (1, 3, 3, 1, 2, 2))
+        
+        # Check output values
+        expected_windows = np.zeros((1, 3, 3, 1, 2, 2), dtype=RingTensor.dtype)
+        for i in range(3):
+            for j in range(3):
+                expected_windows[0, i, j, 0] = data[0, i:i+2, j:j+2, 0]
+        
+        self.assert_tensors_equal(windows.data, expected_windows)
+        
+        # Only test the forward pass for RingTensor since gradients can cause type issues
+        
+        # Test case 2: With padding, stride=1
+        rt.reset_grad()
+        
+        padding = 1
+        windows = rt.sliding_window_2d(window_size=window_size, padding=padding, stride=stride)
+        self.assertEqual(windows.shape, (1, 5, 5, 1, 2, 2))
+        
+        # Test case 3: No padding, stride=2
+        rt.reset_grad()
+        
+        padding = 0
+        stride = 2
+        windows = rt.sliding_window_2d(window_size=window_size, padding=padding, stride=stride)
+        self.assertEqual(windows.shape, (1, 2, 2, 1, 2, 2))
 
 
 if __name__ == '__main__':
