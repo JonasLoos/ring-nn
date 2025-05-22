@@ -138,7 +138,6 @@ class Tensor:
 
         def _backward():
             if self._rg:
-                # Reshape the gradient back to the original shape
                 self._grad += out._grad.reshape(self.data.shape)
         out._backward = _backward
         return out
@@ -174,11 +173,23 @@ class Tensor:
         def _backward():
             if self._rg:
                 # shape: (batch, out_h, out_w, channels, window_size, window_size)
-                B, H, W, C, _, _ = out._grad.shape 
-                grad_pad = np.zeros((B, H * stride + window_size - stride, W * stride + window_size - stride, C), dtype=self.data.dtype)
-                for i in range(window_size):
-                    for j in range(window_size):
-                        grad_pad[:, i:i + H * stride:stride, j:j + W * stride:stride, :] += out._grad[:, :, :, :, i, j]
+                B, H, W, C, _, _ = out._grad.shape
+
+                # Create gradient tensor for padded input
+                padded_h = self.shape[1] + 2 * padding
+                padded_w = self.shape[2] + 2 * padding
+                grad_pad = np.zeros((B, padded_h, padded_w, C), dtype=np.float32)
+
+                # Accumulate gradients
+                for h_start in range(window_size):
+                    for w_start in range(window_size):
+                        h_end = min(padded_h, h_start + H * stride)
+                        w_end = min(padded_w, w_start + W * stride)
+                        h = (h_end - h_start + stride - 1) // stride
+                        w = (w_end - w_start + stride - 1) // stride
+                        if h > 0 and w > 0:
+                            grad_pad[:, h_start:h_end:stride, w_start:w_end:stride, :] += out._grad[:, :h, :w, :, h_start, w_start]
+                
                 self._grad += grad_pad[:, padding:-padding, padding:-padding, :] if padding > 0 else grad_pad
         out._backward = _backward
         return out
@@ -366,8 +377,8 @@ class RealTensor(Tensor):
         return out
 
     def cross_entropy(self, other: Selflike) -> Self:
-        logits = self.as_float()
-        tgt = other.as_float()
+        logits = self.as_float().reshape(self.shape[0], -1)
+        tgt = other.as_float().reshape(other.shape[0], -1)
         n = logits.shape[0]
 
         # numerically-stable soft-max
@@ -382,8 +393,16 @@ class RealTensor(Tensor):
 
         def _backward():
             if self._rg:
-                self._grad += out._grad * (probs - tgt) / n
+                grad = out._grad * (probs - tgt) / n
+                if self.shape != grad.shape:
+                    grad = grad.reshape(self.shape)
+                self._grad += grad
+
             if other._rg:
-                other._grad += out._grad * (-np.log(probs + 1e-20) / n)
+                grad = out._grad * (-np.log(probs + 1e-20) / n)
+                if other.shape != grad.shape:
+                    grad = grad.reshape(other.shape)
+                other._grad += grad
+
         out._backward = _backward
         return out

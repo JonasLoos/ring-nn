@@ -107,8 +107,8 @@ def load_cifar10(batch_size=1):
     def convert_y(data):
         result = []
         for y in data:
-            tmp = np.zeros((10, 1))
-            tmp[y, 0] = 1
+            tmp = np.zeros((10,))
+            tmp[y] = 1
             result.append(RealTensor(tmp))
         return result
 

@@ -34,10 +34,10 @@ class RingNN_tmp:
 
     @staticmethod
     def load(path):
+        nn = RingNN_tmp()
         with open(path, 'rb') as f:
-            weights = pickle.load(f)
-        nn = RingNN([w.shape[0] for w in weights] + [weights[-1].shape[1]])
-        nn.weights = weights
+            nn.weights = pickle.load(f)
+        nn.initial_conv, nn.conv1, nn.conv2, nn.conv3, nn.fc1 = nn.weights
         return nn
 
 class RingNN:
@@ -50,15 +50,15 @@ class RingNN:
         # -> 4x4x10
         self.conv3 = RingTensor.rand((10, 3, 3, 10), requires_grad=True)
         # -> 10
-        self.fc1 = RingTensor.rand((4, 4, 10, 10), requires_grad=True)
+        self.fc1_2d = RingTensor.rand((4 * 4 * 10, 10), requires_grad=True)
 
-        self.weights = [self.conv1, self.conv2, self.conv3, self.fc1]
+        self.weights = [self.conv1, self.conv2, self.conv3, self.fc1_2d]
 
     def __call__(self, x):
         x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv1).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
         x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv2).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
         x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv3).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
-        x = (x.unsqueeze(-1) - self.fc1).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
+        x = (x.reshape((x.shape[0], -1)).unsqueeze(-1) - self.fc1_2d).poly_sigmoid(1.2, 4).mean(axis=-2)
         return 1 - x.real().abs()
 
     def save(self, path):
@@ -67,10 +67,10 @@ class RingNN:
 
     @staticmethod
     def load(path):
+        nn = RingNN()
         with open(path, 'rb') as f:
-            weights = pickle.load(f)
-        nn = RingNN([w.shape[0] for w in weights] + [weights[-1].shape[1]])
-        nn.weights = weights
+            nn.weights = pickle.load(f)
+        nn.conv1, nn.conv2, nn.conv3, nn.fc1_2d = nn.weights
         return nn
 
 
@@ -79,9 +79,9 @@ def print_frac(a, b):
 
 
 def train(nn, epochs, lr, lr_decay, train_logs):
-    train_dl, test_dl = load_cifar10(batch_size=1)
+    train_dl, test_dl = load_cifar10(batch_size=100)
 
-    loss_fn = lambda a, b: a.cross_entropy(b)  # cross-entropy loss
+    loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
 
     optimizer = SGD(nn, lr, lr_decay)
 
@@ -91,7 +91,7 @@ def train(nn, epochs, lr, lr_decay, train_logs):
         for i, (x, y) in enumerate(train_dl):
             pred = nn(x)
             loss = loss_fn(pred, y)
-            accuracy = (pred.data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
+            accuracy = (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).mean()
             loss.backward()
             opt_logs = optimizer()
             print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {opt_logs['abs_update_final']:.2e} (f: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
@@ -113,7 +113,7 @@ def train(nn, epochs, lr, lr_decay, train_logs):
         test_accuracy = 0
         for x, y in test_dl:
             test_loss = test_loss + loss_fn(nn(x), y).data.item()
-            test_accuracy += (nn(x).data.argmax(axis=-2) == y.abs().data.argmax(axis=-2)).mean()
+            test_accuracy += (nn(x).data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).mean()
         print(f"\n{len(print_frac(i+1, len(train_dl)))*' '}   Test  loss: {test_loss / len(test_dl):7.4f} | accuracy: {test_accuracy / len(test_dl):6.2%}")
 
 
