@@ -5,53 +5,17 @@ from optimizer import SGD, Adam
 from data import load_cifar10
 
 
-class RingNN_tmp:
+class RingNN:
     def __init__(self):
         # CIFAR-10 images are 32x32x3
-        # -> 32x32x16
-        self.initial_conv = RingTensor.rand((1, 1, 3, 16), requires_grad=True)
         # -> 16x16x16
-        self.conv1 = RingTensor.rand((16, 3, 3, 16), requires_grad=True)
+        self.conv1 = RingTensor.rand((3, 3, 3, 16), requires_grad=True)
         # -> 8x8x32
         self.conv2 = RingTensor.rand((16, 3, 3, 32), requires_grad=True)
         # -> 4x4x32
         self.conv3 = RingTensor.rand((32, 3, 3, 32), requires_grad=True)
         # -> 10
-        self.fc1 = RingTensor.rand((32 * 4 * 4, 10), requires_grad=True)
-
-        self.weights = [self.initial_conv, self.conv1, self.conv2, self.conv3, self.fc1]
-
-    def __call__(self, x):
-        x = (x.unsqueeze(-1) - self.initial_conv).poly_sigmoid(1.2, 4).mean(axis=-2)
-        x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv1).poly_sigmoid(1.2, 4).mean(axis=(-2,-3))
-        x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv2).poly_sigmoid(1.2, 4).mean(axis=(-2,-3))
-        x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv3).poly_sigmoid(1.2, 4).mean(axis=(-2,-3))
-        x = (x - self.fc1).poly_sigmoid(1.2, 4).mean(axis=-2)
-        return 1 - x.real().abs()
-
-    def save(self, path):
-        with open(path, 'wb') as f:
-            pickle.dump(self.weights, f)
-
-    @staticmethod
-    def load(path):
-        nn = RingNN_tmp()
-        with open(path, 'rb') as f:
-            nn.weights = pickle.load(f)
-        nn.initial_conv, nn.conv1, nn.conv2, nn.conv3, nn.fc1 = nn.weights
-        return nn
-
-class RingNN:
-    def __init__(self):
-        # CIFAR-10 images are 32x32x3
-        # -> 16x16x5
-        self.conv1 = RingTensor.rand((3, 3, 3, 5), requires_grad=True)
-        # -> 8x8x10
-        self.conv2 = RingTensor.rand((5, 3, 3, 10), requires_grad=True)
-        # -> 4x4x10
-        self.conv3 = RingTensor.rand((10, 3, 3, 10), requires_grad=True)
-        # -> 10
-        self.fc1_2d = RingTensor.rand((4 * 4 * 10, 10), requires_grad=True)
+        self.fc1_2d = RingTensor.rand((4 * 4 * 32, 10), requires_grad=True)
 
         self.weights = [self.conv1, self.conv2, self.conv3, self.fc1_2d]
 
