@@ -163,6 +163,26 @@ class Tensor:
         out._backward = _backward
         return out
 
+    def sliding_window_2d(self, window_size: int, padding: int = 0, stride: int = 1) -> Self:
+        # input shape: (batch, height, width, channels) -> output shape: (batch, new_height, new_width, channels, window_size, window_size)
+        data = np.pad(self.data, ((0,0), (padding, padding), (padding, padding), (0,0)), mode='constant')
+        data = np.lib.stride_tricks.sliding_window_view(data, (window_size, window_size), axis=(-3, -2))
+        data = data[:, ::stride, ::stride, :, :, :]
+        out = self.__class__(raw_data=data, requires_grad=self._rg)
+        out._prev = {self}
+
+        def _backward():
+            if self._rg:
+                # shape: (batch, out_h, out_w, channels, window_size, window_size)
+                B, H, W, C, _, _ = out._grad.shape 
+                grad_pad = np.zeros((B, H * stride + window_size - stride, W * stride + window_size - stride, C), dtype=self.data.dtype)
+                for i in range(window_size):
+                    for j in range(window_size):
+                        grad_pad[:, i:i + H * stride:stride, j:j + W * stride:stride, :] += out._grad[:, :, :, :, i, j]
+                self._grad += grad_pad[:, padding:-padding, padding:-padding, :] if padding > 0 else grad_pad
+        out._backward = _backward
+        return out
+
     @classmethod
     def stack(cls, *tensors, axis=0):
         out = cls(raw_data=np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
@@ -248,6 +268,7 @@ class RingTensor(Tensor):
 
         def _backward():
             if self._rg:
+                # TODO: is a *self.sign missing here?
                 self._grad += out._grad * (1 + slope) - slope * out._grad * order * (np.abs(self.as_float() + 1e-20)**(order-1))
         out._backward = _backward
         return out
@@ -311,10 +332,10 @@ class RealTensor(Tensor):
 
     def __rmul__(self, other: Selflike) -> Self:
         return self * other
-    
+
     def __truediv__(self, other: Selflike) -> Self:
         return self * other ** -1
-    
+
     def __rtruediv__(self, other: Selflike) -> Self:
         return other * self ** -1
 
