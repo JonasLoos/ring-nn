@@ -1,4 +1,5 @@
 import pickle
+from datetime import datetime
 from tensor import RingTensor, RealTensor
 from optimizer import SGD, Adam
 from data import load_cifar10
@@ -121,11 +122,12 @@ if __name__ == '__main__':
     nn = RingNN()
     try:
         train_logs = []
-        train(nn, epochs=10, lr=40.0, lr_decay=0.998, train_logs=train_logs)
+        train(nn, epochs=10, lr=400.0, lr_decay=0.995, train_logs=train_logs)
     except KeyboardInterrupt:
         pass
     finally:
         print("\nSaving model...")
-        nn.save('ring_nn_cifar10.pkl')
-        with open('train_logs_cifar10.pkl', 'wb') as f:
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        nn.save(f'logs/{now}_ring_nn_cifar10.pkl')
+        with open(f'logs/{now}_train_logs_cifar10.pkl', 'wb') as f:
             pickle.dump(train_logs, f)

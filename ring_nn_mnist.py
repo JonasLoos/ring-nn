@@ -1,4 +1,5 @@
 import pickle
+from datetime import datetime
 from tensor import RingTensor, RealTensor
 from optimizer import SGD, Adam
 from data import load_mnist
@@ -82,6 +83,7 @@ if __name__ == '__main__':
         pass
     finally:
         print("\nSaving model...")
-        nn.save('ring_nn.pkl')
-        with open('train_logs.pkl', 'wb') as f:
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        nn.save(f'logs/{now}_ring_nn_mnist.pkl')
+        with open(f'logs/{now}_train_logs_mnist.pkl', 'wb') as f:
             pickle.dump(train_logs, f)
