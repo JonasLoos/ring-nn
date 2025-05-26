@@ -1,42 +1,8 @@
 import pickle
 from datetime import datetime
-from tensor import RingTensor, RealTensor
 from optimizer import SGD, Adam
+from nn import Sequential, RingFF, RingConv
 from data import load_cifar10
-
-
-class RingNN:
-    def __init__(self):
-        # CIFAR-10 images are 32x32x3
-        # -> 16x16x16
-        self.conv1 = RingTensor.rand((3, 3, 3, 16), requires_grad=True)
-        # -> 8x8x32
-        self.conv2 = RingTensor.rand((16, 3, 3, 32), requires_grad=True)
-        # -> 4x4x32
-        self.conv3 = RingTensor.rand((32, 3, 3, 32), requires_grad=True)
-        # -> 10
-        self.fc1_2d = RingTensor.rand((4 * 4 * 32, 10), requires_grad=True)
-
-        self.weights = [self.conv1, self.conv2, self.conv3, self.fc1_2d]
-
-    def __call__(self, x):
-        x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv1).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
-        x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv2).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
-        x = (x.sliding_window_2d(3, 1, 2).unsqueeze(-1) - self.conv3).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
-        x = (x.reshape((x.shape[0], -1)).unsqueeze(-1) - self.fc1_2d).poly_sigmoid(1.2, 4).mean(axis=-2)
-        return 1 - x.real().abs()
-
-    def save(self, path):
-        with open(path, 'wb') as f:
-            pickle.dump(self.weights, f)
-
-    @staticmethod
-    def load(path):
-        nn = RingNN()
-        with open(path, 'rb') as f:
-            nn.weights = pickle.load(f)
-        nn.conv1, nn.conv2, nn.conv3, nn.fc1_2d = nn.weights
-        return nn
 
 
 def print_frac(a, b):
@@ -83,7 +49,15 @@ def train(nn, epochs, lr, lr_decay, train_logs):
 
 
 if __name__ == '__main__':
-    nn = RingNN()
+    nn = Sequential([
+        RingConv(3, 16, 3, 1, 2),
+        RingConv(16, 32, 3, 1, 2),
+        RingConv(32, 32, 3, 1, 2),
+        lambda x: x.reshape((x.shape[0], -1)),
+        RingFF(32 * 4 * 4, 10),
+        lambda x: x.real().abs(),
+    ])
+
     try:
         train_logs = []
         train(nn, epochs=10, lr=400.0, lr_decay=0.995, train_logs=train_logs)
