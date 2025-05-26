@@ -37,6 +37,14 @@ class Tensor:
     def reset_grad(self):
         self._grad = np.zeros_like(self.data, dtype=np.float32) if self._rg else None
 
+    def set_to(self, other):
+        self.data = other.data.copy()
+        self._grad = other._grad.copy() if self._grad is not None else None
+        self._rg = other._rg
+        self.backward = None
+        self._prev = set()
+        return self
+
     @property
     def sign(self) -> np.ndarray:
         return np.sign(self.data)
@@ -189,7 +197,7 @@ class Tensor:
                         w = (w_end - w_start + stride - 1) // stride
                         if h > 0 and w > 0:
                             grad_pad[:, h_start:h_end:stride, w_start:w_end:stride, :] += out._grad[:, :h, :w, :, h_start, w_start]
-                
+
                 self._grad += grad_pad[:, padding:-padding, padding:-padding, :] if padding > 0 else grad_pad
         out._backward = _backward
         return out
@@ -256,7 +264,7 @@ class RingTensor(Tensor):
             raise ValueError("Only one of data or raw_data can be provided")
         if data is not None:
             # convert data from [-1, 1] to [min, max]
-            raw_data = (data * -self.min_value).clip(self.min_value, self.max_value).astype(self.dtype)
+            raw_data = (np.array(data) * -self.min_value).clip(self.min_value, self.max_value).astype(self.dtype)
         super().__init__(raw_data=raw_data, requires_grad=requires_grad)
 
     def as_float(self) -> np.ndarray:

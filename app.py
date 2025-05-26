@@ -25,10 +25,7 @@ def index():
 @app.route('/list-logs')
 def list_logs():
     try:
-        log_files = [os.path.basename(f) for f in glob.glob("logs/*log*.pkl")]
-        if not log_files:
-            # Try to find any .pkl file if the specific pattern yields nothing, for broader compatibility
-            log_files = [os.path.basename(f) for f in glob.glob("logs/*.pkl")]
+        log_files = [os.path.basename(f) for f in sorted(glob.glob("logs/*log*.pkl"), reverse=True)]
         return jsonify(log_files)
     except Exception as e:
         return jsonify({"error": str(e)}), 500

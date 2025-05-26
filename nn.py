@@ -13,18 +13,16 @@ class Module:
             if isinstance(m, Module):
                 all_weights += m.weights
         return all_weights
-        
+
     def save(self, path: str):
         with open(path, 'wb') as f:
             pickle.dump(self.weights, f)
 
-    @classmethod
-    def load(cls, path: str):
+    def load(self, path: str):
         with open(path, 'rb') as f:
-            weights = pickle.load(f)
-        nn = cls([w.shape[0] for w in weights] + [weights[-1].shape[1]])
-        nn.weights = weights
-        return nn
+            for old, new in zip(self.weights, pickle.load(f)):
+                old.set_to(new)
+        return self
 
 
 class RingFF(Module):
@@ -50,6 +48,10 @@ class RingConv(Module):
 class Sequential(Module):
     def __init__(self, modules: list[Module | Callable[[Tensor],Tensor]]):
         self.modules = modules
+
+    @property
+    def weights(self):
+        return [w for m in self.modules if isinstance(m, Module) for w in m.weights]
 
     def __call__(self, x: Tensor) -> Tensor:
         for m in self.modules:

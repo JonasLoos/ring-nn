@@ -48,15 +48,18 @@ def train(nn, epochs, lr, lr_decay, train_logs):
         print(f"\n{len(print_frac(i+1, len(train_dl)))*' '}   Test  loss: {test_loss / len(test_dl):7.4f} | accuracy: {test_accuracy / len(test_dl):6.2%}")
 
 
+RingNN = lambda: Sequential([
+    RingConv(3, 16, 3, 1, 2),
+    RingConv(16, 32, 3, 1, 2),
+    RingConv(32, 32, 3, 1, 2),
+    lambda x: x.reshape((x.shape[0], -1)),
+    RingFF(32 * 4 * 4, 10),
+    lambda x: x.real().abs(),
+])
+
+
 if __name__ == '__main__':
-    nn = Sequential([
-        RingConv(3, 16, 3, 1, 2),
-        RingConv(16, 32, 3, 1, 2),
-        RingConv(32, 32, 3, 1, 2),
-        lambda x: x.reshape((x.shape[0], -1)),
-        RingFF(32 * 4 * 4, 10),
-        lambda x: x.real().abs(),
-    ])
+    nn = RingNN()
 
     try:
         train_logs = []
