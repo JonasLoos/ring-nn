@@ -1,7 +1,7 @@
 import pickle
 from datetime import datetime
 from optimizer import SGD, Adam
-from nn import Sequential, RingFF
+from nn import Sequential, RingFF, RingConv
 from data import load_mnist
 
 
@@ -52,8 +52,17 @@ def train(nn, epochs, lr, lr_decay, train_logs):
 
 
 
+# RingNN = lambda: Sequential([
+#     lambda x: x.reshape((x.shape[0], 784)),
+#     RingFF(784, 10),
+#     lambda x: 1 - x.real().abs()
+# ])
+
 RingNN = lambda: Sequential([
-    RingFF(784, 10),
+    RingConv(1, 5, 3, 1, 1),
+    RingConv(5, 5, 3, 1, 2),
+    lambda x: x.reshape((x.shape[0], -1)),
+    RingFF(14*14*5, 10),
     lambda x: 1 - x.real().abs()
 ])
 

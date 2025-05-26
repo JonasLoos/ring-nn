@@ -46,7 +46,7 @@ def load_mnist(batch_size=1):
         urllib.request.urlretrieve(mnist_url, mnist_path)
 
     def convert_x(data):
-        return [RingTensor(x / 255).reshape((784,)) for x in data]
+        return [RingTensor(x / 255).reshape((28, 28, 1)) for x in data]
 
     def convert_y(data):
         result = []
