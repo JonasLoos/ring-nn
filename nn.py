@@ -30,6 +30,7 @@ class Module:
 class RingFF(Module):
     def __init__(self, input_size: int, output_size: int):
         self._weights = [RingTensor.rand((input_size, output_size), requires_grad=True)]
+        # We don't need any bias, because it would be mathematically equivalent to just shifting the weights of the following layer by the corresponding amount.
 
     def __call__(self, x: Tensor):
         return (x.unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=-2)

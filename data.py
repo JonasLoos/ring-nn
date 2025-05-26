@@ -46,13 +46,13 @@ def load_mnist(batch_size=1):
         urllib.request.urlretrieve(mnist_url, mnist_path)
 
     def convert_x(data):
-        return [RingTensor(x / 255).reshape((784, 1)) for x in data]
+        return [RingTensor(x / 255).reshape((784,)) for x in data]
 
     def convert_y(data):
         result = []
         for y in data:
-            tmp = np.zeros((10, 1))
-            tmp[y, 0] = 1
+            tmp = np.zeros((10,))
+            tmp[y] = 1
             result.append(RealTensor(tmp))
         return result
 

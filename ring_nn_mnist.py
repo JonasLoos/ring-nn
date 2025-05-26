@@ -54,7 +54,7 @@ def train(nn, epochs, lr, lr_decay, train_logs):
 
 if __name__ == '__main__':
     nn = Sequential([
-        RingFF(768, 10),
+        RingFF(784, 10),
         lambda x: 1 - x.real().abs()
     ])
 
