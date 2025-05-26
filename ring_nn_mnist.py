@@ -1,30 +1,8 @@
 import pickle
 from datetime import datetime
-from tensor import RingTensor, RealTensor
 from optimizer import SGD, Adam
+from nn import Sequential, RingFF
 from data import load_mnist
-
-
-class RingNN:
-    def __init__(self, sizes):
-        self.weights = [RingTensor.rand((sizes[i], sizes[i+1]), requires_grad=True) for i in range(len(sizes) - 1)]
-
-    def __call__(self, x):
-        for w in self.weights:
-            x = (x - w).poly_sigmoid(1.2, 4).mean(axis=-2).unsqueeze(-1)
-        return 1 - x.real().abs()
-
-    def save(self, path):
-        with open(path, 'wb') as f:
-            pickle.dump(self.weights, f)
-
-    @staticmethod
-    def load(path):
-        with open(path, 'rb') as f:
-            weights = pickle.load(f)
-        nn = RingNN([w.shape[0] for w in weights] + [weights[-1].shape[1]])
-        nn.weights = weights
-        return nn
 
 
 def print_frac(a, b):
@@ -75,7 +53,11 @@ def train(nn, epochs, lr, lr_decay, train_logs):
 
 
 if __name__ == '__main__':
-    nn = RingNN([784, 10])
+    nn = Sequential([
+        RingFF(768, 10),
+        lambda x: 1 - x.real().abs()
+    ])
+
     try:
         train_logs = []
         train(nn, epochs=10, lr=40.0, lr_decay=0.998, train_logs=train_logs)
