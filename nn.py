@@ -4,11 +4,11 @@ from typing import Callable
 
 
 class Module:
-    _weights: list[Tensor] = []
+    _weights: list[Tensor] | None = None
 
     @property
     def weights(self) -> list[Tensor]:
-        all_weights = self._weights
+        all_weights = self._weights or []
         for m in self.__dict__.values():
             if isinstance(m, Module):
                 all_weights += m.weights
