@@ -37,15 +37,3 @@ if __name__ == '__main__':
         log_to_wandb = True,
         wandb_project = 'ring-nn-mnist',
     )
-
-    try:
-        train_logs = []
-        train(nn, epochs=10, lr=40.0, lr_decay=0.998, train_logs=train_logs)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        print("\nSaving model...")
-        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        nn.save(f'logs/{now}_ring_nn_mnist.pkl')
-        with open(f'logs/{now}_train_logs_mnist.pkl', 'wb') as f:
-            pickle.dump(train_logs, f)
