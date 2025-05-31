@@ -10,7 +10,7 @@ def print_frac(a, b):
 
 
 def train(nn, epochs, lr, lr_decay, train_logs):
-    train_dl, test_dl = load_mnist(batch_size=1000)
+    train_dl, test_dl = load_mnist(batch_size=200)
 
     # loss_fn = lambda a, b: ((a - b).abs() * (1 + 8*b)).mean()  # balanced loss
     # loss_fn = lambda a, b: ((a - b) ** 2).mean()  # MSE loss
@@ -30,13 +30,13 @@ def train(nn, epochs, lr, lr_decay, train_logs):
             opt_logs = optimizer()
             print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {opt_logs['abs_update_final']:.2e} (f: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
             train_logs.append({
-                'weights': [w.data.copy() for w in nn.weights],
+                # 'weights': [w.data.copy() for w in nn.weights],
                 'loss': loss.data.item(),
                 'accuracy': accuracy,
                 'abs_update_float': opt_logs['abs_update_float'],
                 'abs_update_final': opt_logs['abs_update_final'],
-                'updates_float': opt_logs['updates_float'],
-                'updates_final': opt_logs['updates_final'],
+                # 'updates_float': opt_logs['updates_float'],
+                # 'updates_final': opt_logs['updates_final'],
                 'lr': optimizer.lr,
                 'epoch': epoch,
                 'i': i,
@@ -59,10 +59,14 @@ def train(nn, epochs, lr, lr_decay, train_logs):
 # ])
 
 RingNN = lambda: Sequential([
-    RingConv(1, 5, 3, 1, 1),
-    RingConv(5, 5, 3, 1, 2),
+    RingConv(1, 6, 3, 1, 1),
+    RingConv(6, 6, 2, 0, 2),
+    RingConv(6, 6, 3, 0, 1),
+    RingConv(6, 6, 2, 0, 2),
+    RingConv(6, 6, 3, 0, 1),
+    RingConv(6, 10, 2, 0, 2),
     lambda x: x.reshape((x.shape[0], -1)),
-    RingFF(14*14*5, 10),
+    RingFF(2*2*10, 10),
     lambda x: 1 - x.real().abs()
 ])
 
