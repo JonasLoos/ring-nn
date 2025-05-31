@@ -6,3 +6,4 @@ __pycache__
 
 cifar-10-batches-py/
 logs/
+wandb/
