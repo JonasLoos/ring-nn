@@ -1,6 +1,7 @@
 import numpy as np
 from typing import Self, TypeVar
 from functools import wraps
+import contextlib
 
 
 def convert_other(f):
@@ -26,7 +27,8 @@ class Tensor:
         if self.dtype is None: raise ValueError("Use a subclass of Tensor")
         if raw_data is None: raise ValueError("raw_data must be provided")
         self.data = raw_data
-        self._rg = requires_grad
+        # Disable gradient computation if in no_grad context
+        self._rg = requires_grad and not _no_grad
         self._backward = None
         self._prev = set()
         self.reset_grad()
@@ -52,14 +54,16 @@ class Tensor:
     @convert_other
     def __add__(self, other: Selflike) -> Self:
         out = self.__class__(raw_data=self.data + other.data, requires_grad=self._rg or other._rg)
-        out._prev = {self, other}
 
-        def _backward():
-            if self._rg:
-                self._grad += Tensor._unbroadcast_gradient(out._grad, self.shape)
-            if other._rg:
-                other._grad += Tensor._unbroadcast_gradient(out._grad, other.shape)
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self, other}
+
+            def _backward():
+                if self._rg:
+                    self._grad += Tensor._unbroadcast_gradient(out._grad, self.shape)
+                if other._rg:
+                    other._grad += Tensor._unbroadcast_gradient(out._grad, other.shape)
+            out._backward = _backward
         return out
 
     def __radd__(self, other: Selflike) -> Self:
@@ -67,31 +71,35 @@ class Tensor:
 
     def sum(self, axis=None, keepdims=False):
         out = self.__class__(raw_data=self.data.sum(axis=axis, keepdims=keepdims), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                g = out._grad
-                # restore the lost dimensions so broadcasting works
-                if not keepdims and axis is not None:
-                    g = np.expand_dims(g, axis=axis)
-                self._grad += np.broadcast_to(g, self.shape)
+        if not _no_grad:
+            out._prev = {self}
 
-        out._backward = _backward
+            def _backward():
+                if self._rg:
+                    g = out._grad
+                    # restore the lost dimensions so broadcasting works
+                    if not keepdims and axis is not None:
+                        g = np.expand_dims(g, axis=axis)
+                    self._grad += np.broadcast_to(g, self.shape)
+
+            out._backward = _backward
         return out
 
     def mean(self, axis=None, keepdims=False):
         out = self.__class__(raw_data=self.data.mean(axis=axis, keepdims=keepdims), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                g = out._grad / (self.size / out.size)  # scale by 1/N
-                if not keepdims and axis is not None:
-                    g = np.expand_dims(g, axis=axis)
-                self._grad += np.broadcast_to(g, self.shape)
+        if not _no_grad:
+            out._prev = {self}
 
-        out._backward = _backward
+            def _backward():
+                if self._rg:
+                    g = out._grad / (self.size / out.size)  # scale by 1/N
+                    if not keepdims and axis is not None:
+                        g = np.expand_dims(g, axis=axis)
+                    self._grad += np.broadcast_to(g, self.shape)
+
+            out._backward = _backward
         return out
 
     def __sub__(self, other: Selflike) -> Self:
@@ -102,12 +110,14 @@ class Tensor:
 
     def __neg__(self) -> Self:
         out = self.__class__(raw_data=-self.data, requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += -out._grad
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += -out._grad
+            out._backward = _backward
         return out
 
     def backward(self):
@@ -142,79 +152,89 @@ class Tensor:
 
     def reshape(self, shape):
         out = self.__class__(raw_data=self.data.reshape(shape), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += out._grad.reshape(self.data.shape)
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad.reshape(self.data.shape)
+            out._backward = _backward
         return out
 
     def unsqueeze(self, axis):
         out = self.__class__(raw_data=np.expand_dims(self.data, axis=axis), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += np.squeeze(out._grad, axis=axis)
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += np.squeeze(out._grad, axis=axis)
+            out._backward = _backward
         return out
 
     def squeeze(self, axis):
         out = self.__class__(raw_data=np.squeeze(self.data, axis=axis), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += np.expand_dims(out._grad, axis=axis)
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += np.expand_dims(out._grad, axis=axis)
+            out._backward = _backward
         return out
 
     def sliding_window_2d(self, window_size: int, padding: int = 0, stride: int = 1) -> Self:
         # input shape: (batch, height, width, channels) -> output shape: (batch, new_height, new_width, channels, window_size, window_size)
         data = np.pad(self.data, ((0,0), (padding, padding), (padding, padding), (0,0)), mode='constant')
         data = np.lib.stride_tricks.sliding_window_view(data, (window_size, window_size), axis=(-3, -2))
-        data = data[:, ::stride, ::stride, :, :, :]
+        data = data[:, ::stride, ::stride, :, :, :].copy()
         out = self.__class__(raw_data=data, requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                # shape: (batch, out_h, out_w, channels, window_size, window_size)
-                B, H, W, C, _, _ = out._grad.shape
+        if not _no_grad:
+            out._prev = {self}
 
-                # Create gradient tensor for padded input
-                padded_h = self.shape[1] + 2 * padding
-                padded_w = self.shape[2] + 2 * padding
-                grad_pad = np.zeros((B, padded_h, padded_w, C), dtype=np.float32)
+            def _backward():
+                if self._rg:
+                    # shape: (batch, out_h, out_w, channels, window_size, window_size)
+                    B, H, W, C, _, _ = out._grad.shape
 
-                # Accumulate gradients
-                for h_start in range(window_size):
-                    for w_start in range(window_size):
-                        h_end = min(padded_h, h_start + H * stride)
-                        w_end = min(padded_w, w_start + W * stride)
-                        h = (h_end - h_start + stride - 1) // stride
-                        w = (w_end - w_start + stride - 1) // stride
-                        if h > 0 and w > 0:
-                            grad_pad[:, h_start:h_end:stride, w_start:w_end:stride, :] += out._grad[:, :h, :w, :, h_start, w_start]
+                    # Create gradient tensor for padded input
+                    padded_h = self.shape[1] + 2 * padding
+                    padded_w = self.shape[2] + 2 * padding
+                    grad_pad = np.zeros((B, padded_h, padded_w, C), dtype=np.float32)
 
-                self._grad += grad_pad[:, padding:-padding, padding:-padding, :] if padding > 0 else grad_pad
-        out._backward = _backward
+                    # Accumulate gradients
+                    for h_start in range(window_size):
+                        for w_start in range(window_size):
+                            h_end = min(padded_h, h_start + H * stride)
+                            w_end = min(padded_w, w_start + W * stride)
+                            h = (h_end - h_start + stride - 1) // stride
+                            w = (w_end - w_start + stride - 1) // stride
+                            if h > 0 and w > 0:
+                                grad_pad[:, h_start:h_end:stride, w_start:w_end:stride, :] += out._grad[:, :h, :w, :, h_start, w_start]
+
+                    self._grad += grad_pad[:, padding:-padding, padding:-padding, :] if padding > 0 else grad_pad
+            out._backward = _backward
         return out
 
     @classmethod
     def stack(cls, *tensors, axis=0):
         out = cls(raw_data=np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
-        out._prev = set(tensors)
 
-        def _backward():
-            for i, t in enumerate(tensors):
-                if t._rg:
-                    # We need to slice the gradient corresponding to this tensor
-                    slices = [slice(None)] * out._grad.ndim
-                    slices[axis] = i
-                    t._grad += Tensor._unbroadcast_gradient(out._grad[tuple(slices)], t.shape)
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = set(tensors)
+
+            def _backward():
+                for i, t in enumerate(tensors):
+                    if t._rg:
+                        # We need to slice the gradient corresponding to this tensor
+                        slices = [slice(None)] * out._grad.ndim
+                        slices[axis] = i
+                        t._grad += Tensor._unbroadcast_gradient(out._grad[tuple(slices)], t.shape)
+            out._backward = _backward
         return out
 
     @staticmethod
@@ -250,6 +270,21 @@ class Tensor:
         return np.reshape(processed_grad, original_input_shape)
 
 
+# Global flag to disable gradient computation
+_no_grad = False
+
+@contextlib.contextmanager
+def no_grad():
+    """Context manager to disable gradient computation"""
+    global _no_grad
+    old_no_grad = _no_grad
+    _no_grad = True
+    try:
+        yield
+    finally:
+        _no_grad = old_no_grad
+
+
 class RingTensor(Tensor):
     # dtype = np.int8
     dtype = np.int16
@@ -273,36 +308,42 @@ class RingTensor(Tensor):
     def poly(self, order: float) -> Self:
         # polynomial activation: |x|^order * sign(x)
         out = RingTensor(np.abs(self.as_float() + 1e-20)**order * self.sign, requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += out._grad * order * (np.abs(self.as_float()) + 1e-20)**(order-1)
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad * order * (np.abs(self.as_float()) + 1e-20)**(order-1)
+            out._backward = _backward
         return out
 
     def poly_sigmoid(self, order: float, slope: float) -> Self:
         out = RingTensor((1 + slope) * self.as_float() - slope * self.sign * (np.abs(self.as_float() + 1e-20)**order), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                # TODO: is a *self.sign missing here?
-                self._grad += out._grad * (1 + slope) - slope * out._grad * order * (np.abs(self.as_float() + 1e-20)**(order-1))
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    # TODO: is a *self.sign missing here?
+                    self._grad += out._grad * (1 + slope) - slope * out._grad * order * (np.abs(self.as_float() + 1e-20)**(order-1))
+            out._backward = _backward
         return out
 
     def sin(self) -> Self:
         # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x) * 0.5
         activation = (np.sin(self.as_float()*np.pi - np.pi/2) + 1) * self.sign * 0.5
         out = RingTensor(activation, requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
-                self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign * 0.5
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
+                    self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign * 0.5
+            out._backward = _backward
         return out
 
     @classmethod
@@ -312,12 +353,14 @@ class RingTensor(Tensor):
 
     def real(self) -> Self:
         out = RealTensor(self.as_float(), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += out._grad
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad
+            out._backward = _backward
         return out
 
 
@@ -339,14 +382,16 @@ class RealTensor(Tensor):
     @convert_other
     def __mul__(self, other: Selflike) -> Self:
         out = RealTensor(self.data * other.data, requires_grad=self._rg or other._rg)
-        out._prev = {self, other}
 
-        def _backward():
-            if self._rg:
-                self._grad += out._grad * other.data
-            if other._rg:
-                other._grad += out._grad * self.data
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self, other}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad * other.data
+                if other._rg:
+                    other._grad += out._grad * self.data
+            out._backward = _backward
         return out
 
     def __rmul__(self, other: Selflike) -> Self:
@@ -361,14 +406,16 @@ class RealTensor(Tensor):
     @convert_other
     def __pow__(self, other: Selflike) -> Self:
         out = RealTensor(self.data ** other.data, requires_grad=self._rg or other._rg)
-        out._prev = {self, other}
 
-        def _backward():
-            if self._rg:
-                self._grad += out._grad * other.data * self.data ** (other.data - 1)
-            if other._rg:
-                other._grad += out._grad * np.log(self.data) * self.data ** other.data
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self, other}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad * other.data * self.data ** (other.data - 1)
+                if other._rg:
+                    other._grad += out._grad * np.log(self.data) * self.data ** other.data
+            out._backward = _backward
         return out
 
     def __rpow__(self, other: Selflike) -> Self:
@@ -376,12 +423,14 @@ class RealTensor(Tensor):
 
     def abs(self) -> Self:
         out = RealTensor(np.abs(self.data), requires_grad=self._rg)
-        out._prev = {self}
 
-        def _backward():
-            if self._rg:
-                self._grad += out._grad * self.sign
-        out._backward = _backward
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad * self.sign
+            out._backward = _backward
         return out
 
     def cross_entropy(self, other: Selflike) -> Self:
@@ -397,20 +446,22 @@ class RealTensor(Tensor):
         # cross-entropy loss
         loss_val = -np.sum(tgt * np.log(probs + 1e-20)) / n
         out = RealTensor(loss_val, requires_grad=self._rg or other._rg)
-        out._prev = {self, other}
 
-        def _backward():
-            if self._rg:
-                grad = out._grad * (probs - tgt) / n
-                if self.shape != grad.shape:
-                    grad = grad.reshape(self.shape)
-                self._grad += grad
+        if not _no_grad:
+            out._prev = {self, other}
 
-            if other._rg:
-                grad = out._grad * (-np.log(probs + 1e-20) / n)
-                if other.shape != grad.shape:
-                    grad = grad.reshape(other.shape)
-                other._grad += grad
+            def _backward():
+                if self._rg:
+                    grad = out._grad * (probs - tgt) / n
+                    if self.shape != grad.shape:
+                        grad = grad.reshape(self.shape)
+                    self._grad += grad
 
-        out._backward = _backward
+                if other._rg:
+                    grad = out._grad * (-np.log(probs + 1e-20) / n)
+                    if other.shape != grad.shape:
+                        grad = grad.reshape(other.shape)
+                    other._grad += grad
+
+            out._backward = _backward
         return out

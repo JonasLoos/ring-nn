@@ -12,8 +12,6 @@ class SGD:
     def __call__(self):
         abs_update_float = 0
         abs_update_final = 0
-        updates_float = []
-        updates_final = []
         for w in self.nn.weights:
             update = w._grad * self.lr
             update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
@@ -21,14 +19,12 @@ class SGD:
             w.reset_grad()
             abs_update_float += np.abs(update).mean()
             abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
-            updates_float.append(update)
-            updates_final.append(update_final)
+            # Don't store references to prevent memory leaks
+            del update, update_final
         self.lr *= self.lr_decay
         return {
             'abs_update_float': abs_update_float,
             'abs_update_final': abs_update_final,
-            'updates_float': updates_float,
-            'updates_final': updates_final
         }
 
 

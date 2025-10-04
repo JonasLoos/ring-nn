@@ -1,5 +1,6 @@
 from datetime import datetime
 import pickle
+from tensor import no_grad
 
 
 def print_frac(a, b):
@@ -51,13 +52,26 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                         'abs_update_float': opt_logs['abs_update_float'],
                         'abs_update_final': opt_logs['abs_update_final'],
                     })
+                # Clear references and force garbage collection every few batches
+                del pred, loss, accuracy
+                if i % 50 == 0:
+                    import gc
+                    gc.collect()
 
             # Test on validation set
             test_loss = 0
             test_accuracy = 0
-            for x, y in test_dl:
-                test_loss = test_loss + loss_fn(nn(x), y).data.item()
-                test_accuracy += (nn(x).data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).mean()
+            with no_grad():  # Disable gradient computation during testing
+                for test_i, (x, y) in enumerate(test_dl):
+                    pred = nn(x)
+                    test_loss = test_loss + loss_fn(pred, y).data.item()
+                    test_accuracy += (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).mean()
+
+                    # Force garbage collection every few batches to prevent memory accumulation
+                    del pred
+                    if test_i % 10 == 0:
+                        import gc
+                        gc.collect()
             test_loss /= len(test_dl)
             test_accuracy /= len(test_dl)
             if log_to_terminal:
