@@ -436,9 +436,9 @@ class TestRingTensorOps(unittest.TestCase):
         expected_data = expected_data_op(*custom_input_data)
         
         if expect_float:
-            self.assertTrue(np.allclose(custom_result.data, expected_data))
+            self.assertTrue(np.allclose(custom_result.data, expected_data), f"Data mismatch ({op_name}): custom={custom_result.data}, expected={expected_data}")
         else:
-            self.assert_tensors_equal(custom_result.data, expected_data)
+            self.assert_tensors_equal(custom_result.data, expected_data, f"Data mismatch ({op_name}): custom={custom_result.data}, expected={expected_data}")
         
         # Gradient check
         torch_result = torch_op(*torch_inputs)
@@ -447,10 +447,7 @@ class TestRingTensorOps(unittest.TestCase):
         torch_result.sum().backward()
         
         for custom_param, torch_param in params_to_check:
-            torch_grad = torch_param.grad.numpy()
-            if op_name == "Ring Sin":  # Special case adjustment
-                torch_grad = torch_grad / 2.0
-            self.assert_grad_close(custom_param, torch_grad)
+            self.assert_grad_close(custom_param, torch_param.grad.numpy(), msg_prefix=f"Grad mismatch ({op_name}): custom={custom_param._grad}, torch={torch_param.grad.numpy()}")
             
         return custom_result
 
@@ -512,11 +509,10 @@ class TestRingTensorOps(unittest.TestCase):
             "Mean",
             lambda x: x.mean(),
             lambda x: x.mean(),
-            lambda d: np.array(d.mean()),
+            lambda d: np.array(d.mean(), dtype=rt.dtype),
             (rt,),
             (torch_data,),
-            [(rt, torch_data)],
-            expect_float=True
+            [(rt, torch_data)]
         )
 
     def test_ring_sin(self):
@@ -527,7 +523,7 @@ class TestRingTensorOps(unittest.TestCase):
         def torch_sin_op(raw_x_torch):
             as_float_torch = raw_x_torch / (-self.RT_MIN_F)
             sign_raw_torch = torch.sign(raw_x_torch)
-            y_f_torch = (torch.sin(as_float_torch * np.pi - np.pi / 2.0) + 1.0) * sign_raw_torch
+            y_f_torch = (torch.sin(as_float_torch * np.pi - np.pi / 2.0) + 1.0) * sign_raw_torch * 0.5
             return y_f_torch * (-self.RT_MIN_F)
             
         def expected_sin_data(raw_d):
