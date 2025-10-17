@@ -16,6 +16,68 @@ body { padding-top: 20px; }
     margin-left: 5px;
     margin-right: 15px;
 }
+.run-list-sidebar {
+    height: calc(100vh - 200px);
+    position: sticky;
+    top: 20px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 15px;
+    overflow: hidden;
+}
+.run-list-container {
+    height: calc(100% - 40px);
+    overflow-y: auto;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}
+.run-item {
+    padding: 8px;
+    margin-bottom: 8px;
+    border: 1px solid #eee;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.run-item:hover {
+    background-color: #f8f9fa;
+    border-color: #ddd;
+}
+.run-item.selected {
+    background-color: #e3f2fd;
+    border-color: #2196f3;
+}
+.run-item:last-child {
+    margin-bottom: 0;
+}
+.run-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+}
+.run-name {
+    font-weight: bold;
+    color: #333;
+}
+.run-metrics {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 0.8em;
+    color: #666;
+    margin-top: 5px;
+}
+.metric-badge {
+    background: #f0f0f0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75em;
+    display: inline-block;
+    width: fit-content;
+}
 #gradient-explorer-controls {
     position: sticky;
     top: 0;
@@ -25,20 +87,26 @@ body { padding-top: 20px; }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <h1 class="text-center">Training Log Visualization</h1>
-
-        <div class="form-group controls row">
-            <div class="col-md-4">
-                <label for="log-file-select">Select Log File:</label>
-                <select id="log-file-select" class="form-control"></select>
+    <div class="container-fluid h-100">
+        <div class="row h-100">
+            <!-- Run List Sidebar (Left Side) -->
+            <div class="col-md-3">
+                <div class="run-list-sidebar">
+                    <h5 class="text-center mb-3">Available Runs</h5>
+                    <div id="run-list-container" class="run-list-container">
+                        <!-- Run list will be populated here -->
+                    </div>
+                </div>
             </div>
-        </div>
 
-        <div id="loading-message" class="alert alert-info">Loading data...</div>
-        <div id="error-message" class="alert alert-danger" style="display: none;"></div>
+            <!-- Main Dashboard Content (Right Side) -->
+            <div class="col-md-9">
+                <h1 class="text-center">Training Log Visualization</h1>
 
-        <div id="dashboard-content" style="display: none;">
+                <div id="loading-message" class="alert alert-info" style="margin-top: 20px;">Loading data...</div>
+                <div id="error-message" class="alert alert-danger" style="display: none; margin-top: 20px;"></div>
+
+                <div id="dashboard-content" style="display: none; margin-top: 20px;">
             <!-- Overview Plots -->
             <div class="row">
                 <div class="col-md-6">
@@ -147,8 +215,8 @@ body { padding-top: 20px; }
                 <div class="col-md-12">
                     <div id="weight-feature-plot" class="plot-container" style="height: 500px;"></div>
                 </div>
+                </div>
             </div>
-
         </div>
     </div>
 
@@ -160,19 +228,127 @@ body { padding-top: 20px; }
         let trackedParameterPath = null; // { layerIndex, valueType, indexPath: [idx1, idx2...] }
         let availableLogFiles = [];
         let currentLogFile = null;
+        let analysisPromises = new Map(); // Track ongoing analysis requests
+        let binaryCache = new Map(); // Cache for binary data
+
+        // Helper function to convert binary data back to arrays
+        function convertBinaryToArray(obj, cacheKey) {
+            if (obj && typeof obj === 'object' && obj.type === 'numpy_array') {
+                const binaryData = binaryCache.get(`${cacheKey}_${obj.index}`);
+                if (!binaryData) {
+                    console.error(`Binary data not found for index ${obj.index}`);
+                    return null;
+                }
+
+                // Convert binary data to typed array based on dtype
+                let typedArray;
+                switch (obj.dtype) {
+                    case 'float32':
+                        typedArray = new Float32Array(binaryData);
+                        break;
+                    case 'float64':
+                        typedArray = new Float64Array(binaryData);
+                        break;
+                    case 'int32':
+                        typedArray = new Int32Array(binaryData);
+                        break;
+                    case 'int64':
+                        typedArray = new BigInt64Array(binaryData);
+                        break;
+                    default:
+                        typedArray = new Float32Array(binaryData);
+                }
+
+                // Convert to nested arrays based on shape
+                return reshapeTypedArray(typedArray, obj.shape);
+            } else if (Array.isArray(obj)) {
+                return obj.map(item => convertBinaryToArray(item, cacheKey));
+            } else if (obj && typeof obj === 'object') {
+                const result = {};
+                for (const [key, value] of Object.entries(obj)) {
+                    result[key] = convertBinaryToArray(value, cacheKey);
+                }
+                return result;
+            }
+            return obj;
+        }
+
+        // Helper function to reconstruct individual training logs from combined data
+        function reconstructTrainingLogs(combinedData) {
+            const { scalar_data, combined_arrays } = combinedData;
+            const numSteps = scalar_data.length;
+
+            const reconstructedLogs = [];
+
+            for (let step = 0; step < numSteps; step++) {
+                const logEntry = { ...scalar_data[step] };
+
+                // Extract arrays for this step from combined arrays
+                for (const [arrayType, layerArrays] of Object.entries(combined_arrays)) {
+                    logEntry[arrayType] = [];
+
+                    for (let layerIdx = 0; layerIdx < layerArrays.length; layerIdx++) {
+                        const combinedArray = layerArrays[layerIdx];
+                        if (combinedArray && Array.isArray(combinedArray)) {
+                            // Extract the slice for this training step (first dimension)
+                            const stepArray = combinedArray[step];
+                            logEntry[arrayType].push(stepArray);
+                        }
+                    }
+                }
+
+                reconstructedLogs.push(logEntry);
+            }
+
+            return reconstructedLogs;
+        }
+
+        // Helper to reshape typed array to nested arrays
+        function reshapeTypedArray(typedArray, shape) {
+            if (shape.length === 0) {
+                return typedArray[0];
+            } else if (shape.length === 1) {
+                return Array.from(typedArray);
+            } else if (shape.length === 2) {
+                const result = [];
+                for (let i = 0; i < shape[0]; i++) {
+                    result.push(Array.from(typedArray.slice(i * shape[1], (i + 1) * shape[1])));
+                }
+                return result;
+            } else {
+                // For higher dimensions, flatten and reshape
+                const totalElements = shape.reduce((a, b) => a * b, 1);
+                const flatArray = Array.from(typedArray.slice(0, totalElements));
+                return reshapeArray(flatArray, shape);
+            }
+        }
+
+        // Helper to reshape flat array to multi-dimensional array
+        function reshapeArray(arr, shape) {
+            if (shape.length === 1) {
+                return arr;
+            }
+
+            const result = [];
+            const elementsPerSubarray = shape.slice(1).reduce((a, b) => a * b, 1);
+
+            for (let i = 0; i < shape[0]; i++) {
+                const start = i * elementsPerSubarray;
+                const end = start + elementsPerSubarray;
+                result.push(reshapeArray(arr.slice(start, end), shape.slice(1)));
+            }
+
+            return result;
+        }
 
         document.addEventListener('DOMContentLoaded', async () => {
             await loadLogFilesList();
-            const logFileSelect = document.getElementById('log-file-select');
-            logFileSelect.addEventListener('change', async (event) => {
-                currentLogFile = event.target.value;
-                await loadDataAndRender(currentLogFile);
-            });
 
             if (availableLogFiles.length > 0) {
-                currentLogFile = availableLogFiles[0];
-                logFileSelect.value = currentLogFile;
-                await loadDataAndRender(currentLogFile);
+                // Auto-select the first run after a short delay to ensure UI is rendered
+                setTimeout(() => {
+                    selectRun(availableLogFiles[0]);
+                }, 100);
             } else {
                 document.getElementById('loading-message').textContent = 'No log files found in logs/ directory.';
                 document.getElementById('error-message').style.display = 'none';
@@ -181,25 +357,28 @@ body { padding-top: 20px; }
 
         async function loadLogFilesList() {
             try {
+                const runListContainer = document.getElementById('run-list-container');
+                runListContainer.innerHTML = '<div class="alert alert-info">Loading runs...</div>';
+
                 const response = await fetch('/list-logs');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
                 availableLogFiles = await response.json();
-                const logFileSelect = document.getElementById('log-file-select');
-                logFileSelect.innerHTML = ''; // Clear existing options
+                runListContainer.innerHTML = ''; // Clear loading message
+
                 if (availableLogFiles.length > 0) {
-                    availableLogFiles.forEach(fileName => {
-                        const option = document.createElement('option');
-                        option.value = fileName;
-                        option.textContent = fileName;
-                        logFileSelect.appendChild(option);
-                    });
+                    // Create run items and load analysis for each
+                    for (const fileName of availableLogFiles) {
+                        // Create basic item and load analysis in background
+                        const runItem = createBasicRunItemElement(fileName, true); // loading state
+                        runListContainer.appendChild(runItem);
+
+                        // Load analysis asynchronously without blocking UI
+                        loadRunAnalysisAsync(fileName, runItem);
+                    }
                 } else {
-                    const option = document.createElement('option');
-                    option.textContent = "No log files found";
-                    option.disabled = true;
-                    logFileSelect.appendChild(option);
+                    runListContainer.innerHTML = '<div class="alert alert-warning">No log files found in logs/ directory.</div>';
                 }
             } catch (error) {
                 console.error('Error fetching log files list:', error);
@@ -211,9 +390,237 @@ body { padding-top: 20px; }
             }
         }
 
+
+        async function analyzeLogFile(fileName) {
+            // Use AbortController for timeout handling
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+            try {
+                const response = await fetch(`/data?log_file=${encodeURIComponent(fileName)}`, {
+                    signal: controller.signal
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to load ${fileName}`);
+                }
+
+                const dataInfo = await response.json();
+                clearTimeout(timeoutId);
+
+                const { metadata, binary_count } = dataInfo;
+
+                if (!metadata || !metadata.scalar_data || !Array.isArray(metadata.scalar_data) || metadata.scalar_data.length === 0) {
+                    return {
+                        numSteps: 0,
+                        maxAccuracy: 0,
+                        hasGradients: false,
+                        hasWeights: false,
+                        firstEpoch: null,
+                        lastEpoch: null
+                    };
+                }
+
+                const scalarData = metadata.scalar_data;
+                const numSteps = scalarData.length;
+
+                // Efficiently find max accuracy by sampling (without loading binary data)
+                let maxAccuracy = 0;
+                const sampleSize = Math.min(scalarData.length, 1000); // Sample up to 1000 entries
+
+                for (let i = 0; i < scalarData.length; i += Math.ceil(scalarData.length / sampleSize)) {
+                    const accuracy = scalarData[i].accuracy;
+                    if (accuracy != null && accuracy > maxAccuracy) {
+                        maxAccuracy = accuracy;
+                    }
+                }
+
+                // Check for gradients and weights (check if combined_arrays exist)
+                let hasGradients = false;
+                let hasWeights = false;
+
+                if (metadata.combined_arrays) {
+                    hasWeights = metadata.combined_arrays.weights && Array.isArray(metadata.combined_arrays.weights) && metadata.combined_arrays.weights.length > 0;
+                    hasGradients = (metadata.combined_arrays.updates_final && Array.isArray(metadata.combined_arrays.updates_final) && metadata.combined_arrays.updates_final.length > 0) ||
+                                  (metadata.combined_arrays.updates_float && Array.isArray(metadata.combined_arrays.updates_float) && metadata.combined_arrays.updates_float.length > 0);
+                }
+
+                const firstEpoch = scalarData.length > 0 ? scalarData[0].epoch : null;
+                const lastEpoch = scalarData.length > 0 ? scalarData[scalarData.length - 1].epoch : null;
+
+                return {
+                    numSteps,
+                    maxAccuracy,
+                    hasGradients,
+                    hasWeights,
+                    firstEpoch,
+                    lastEpoch
+                };
+            } catch (error) {
+                clearTimeout(timeoutId);
+                if (error.name === 'AbortError') {
+                    throw new Error(`Timeout loading ${fileName}`);
+                }
+                throw error;
+            }
+        }
+
+        async function loadRunAnalysisAsync(fileName, runItem) {
+            // Check if analysis is already in progress
+            if (analysisPromises.has(fileName)) {
+                try {
+                    await analysisPromises.get(fileName);
+                    return; // Already completed
+                } catch (error) {
+                    // Remove failed promise and retry
+                    analysisPromises.delete(fileName);
+                }
+            }
+
+            // Limit concurrent analyses to prevent overwhelming the server
+            const maxConcurrentAnalyses = 3;
+            while (analysisPromises.size >= maxConcurrentAnalyses) {
+                await Promise.race(analysisPromises.values());
+            }
+
+            const analysisPromise = performRunAnalysis(fileName, runItem);
+            analysisPromises.set(fileName, analysisPromise);
+
+            try {
+                await analysisPromise;
+            } finally {
+                analysisPromises.delete(fileName);
+            }
+        }
+
+        async function performRunAnalysis(fileName, runItem) {
+            try {
+                const runInfo = await analyzeLogFile(fileName);
+
+                // Update the existing item with full information
+                const newRunItem = createRunItemElement(fileName, runInfo);
+                runItem.parentNode.replaceChild(newRunItem, runItem);
+            } catch (error) {
+                console.warn(`Error analyzing log file ${fileName}:`, error);
+                // Update to show error state
+                runItem.innerHTML = `
+                    <div class="run-info">
+                        <div class="run-name">${fileName}</div>
+                        <div class="run-metrics">
+                            <span class="metric-badge" style="background-color: #f8d7da; color: #721c24;">Analysis Failed</span>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        function createRunItemElement(fileName, runInfo) {
+            const runItem = document.createElement('div');
+            runItem.className = 'run-item';
+            runItem.dataset.fileName = fileName;
+
+            const runInfoDiv = document.createElement('div');
+            runInfoDiv.className = 'run-info';
+
+            const runNameDiv = document.createElement('div');
+            runNameDiv.className = 'run-name';
+            runNameDiv.textContent = fileName;
+
+            const runMetricsDiv = document.createElement('div');
+            runMetricsDiv.className = 'run-metrics';
+
+            // Max accuracy badge
+            const accuracyBadge = document.createElement('span');
+            accuracyBadge.className = 'metric-badge';
+            accuracyBadge.textContent = `Max Acc: ${(runInfo.maxAccuracy * 100).toFixed(1)}%`;
+            runMetricsDiv.appendChild(accuracyBadge);
+
+            // Steps badge
+            const stepsBadge = document.createElement('span');
+            stepsBadge.className = 'metric-badge';
+            stepsBadge.textContent = `Steps: ${runInfo.numSteps}`;
+            runMetricsDiv.appendChild(stepsBadge);
+
+            // Gradients badge
+            if (runInfo.hasGradients) {
+                const gradientsBadge = document.createElement('span');
+                gradientsBadge.className = 'metric-badge';
+                gradientsBadge.style.backgroundColor = '#d4edda';
+                gradientsBadge.style.color = '#155724';
+                gradientsBadge.textContent = 'Has Gradients';
+                runMetricsDiv.appendChild(gradientsBadge);
+            }
+
+            // Weights badge
+            if (runInfo.hasWeights) {
+                const weightsBadge = document.createElement('span');
+                weightsBadge.className = 'metric-badge';
+                weightsBadge.style.backgroundColor = '#cce7ff';
+                weightsBadge.style.color = '#0066cc';
+                weightsBadge.textContent = 'Has Weights';
+                runMetricsDiv.appendChild(weightsBadge);
+            }
+
+            runInfoDiv.appendChild(runNameDiv);
+            runInfoDiv.appendChild(runMetricsDiv);
+
+            runItem.appendChild(runInfoDiv);
+
+            // Add click handler
+            runItem.addEventListener('click', async () => {
+                selectRun(fileName);
+            });
+
+            return runItem;
+        }
+
+        function createBasicRunItemElement(fileName, isLoading = false) {
+            const runItem = document.createElement('div');
+            runItem.className = 'run-item';
+            runItem.dataset.fileName = fileName;
+
+            let badgeHtml = '';
+            if (isLoading) {
+                badgeHtml = '<span class="metric-badge" style="background-color: #d1ecf1; color: #0c5460;">Loading...</span>';
+            } else {
+                badgeHtml = '<span class="metric-badge" style="background-color: #fff3cd; color: #856404;">Analysis Failed</span>';
+            }
+
+            runItem.innerHTML = `
+                <div class="run-info">
+                    <div class="run-name">${fileName}</div>
+                    <div class="run-metrics">
+                        ${badgeHtml}
+                    </div>
+                </div>
+            `;
+
+            // Add click handler
+            runItem.addEventListener('click', async () => {
+                selectRun(fileName);
+            });
+
+            return runItem;
+        }
+
+        function selectRun(fileName) {
+            // Remove previous selection
+            document.querySelectorAll('.run-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+
+            // Mark current selection
+            const selectedItem = document.querySelector(`[data-file-name="${fileName}"]`);
+            if (selectedItem) {
+                selectedItem.classList.add('selected');
+            }
+
+            // Load the data
+            loadDataAndRender(fileName);
+        }
+
         async function loadDataAndRender(logFileName) {
             if (!logFileName) {
-                document.getElementById('loading-message').textContent = 'Please select a log file.';
+                document.getElementById('loading-message').textContent = 'Please select a log file from the list above.';
                 document.getElementById('dashboard-content').style.display = 'none';
                 return;
             }
@@ -225,12 +632,33 @@ body { padding-top: 20px; }
             trackedParameterPath = null; // Reset tracked parameter on new file load
 
             try {
+                // First, get metadata and binary info
                 const response = await fetch(`/data?log_file=${encodeURIComponent(logFileName)}`);
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
                 }
-                trainLogs = await response.json();
+
+                const dataInfo = await response.json();
+                const { metadata, cache_key, binary_count } = dataInfo;
+
+                // Load all binary data
+                document.getElementById('loading-message').textContent = `Loading binary data (${binary_count} arrays)...`;
+
+                for (let i = 0; i < binary_count; i++) {
+                    const binaryResponse = await fetch(`/binary/${cache_key}/${i}`);
+                    if (!binaryResponse.ok) {
+                        throw new Error(`Failed to load binary data ${i}`);
+                    }
+                    const binaryData = await binaryResponse.arrayBuffer();
+                    binaryCache.set(`${cache_key}_${i}`, binaryData);
+                }
+
+                // Convert metadata back to arrays
+                const combinedData = convertBinaryToArray(metadata, cache_key);
+
+                // Reconstruct individual training logs from combined data
+                trainLogs = reconstructTrainingLogs(combinedData);
 
                 if (!trainLogs || trainLogs.length === 0) {
                     document.getElementById('loading-message').textContent = `No training data found in ${logFileName}.`;
@@ -828,6 +1256,8 @@ body { padding-top: 20px; }
             const layerIndex = parseInt(document.getElementById('layer-select').value);
             const valueType = document.getElementById('value-type-select').value;
 
+            const MAX_SUBPLOTS = 50;
+
             if (valueType !== 'weights') {
                 Plotly.purge(featurePlotDiv);
                 featurePlotDiv.innerHTML = '<div class="alert alert-info">This visualization is only available for the "Weights" value type. Select "Weights" in the "Value Type" dropdown above.</div>';
@@ -850,7 +1280,7 @@ body { padding-top: 20px; }
                 const dim1 = shape[1]; // number of features
                 const imageSide = Math.sqrt(dim0);
                 if (Number.isInteger(imageSide) && imageSide > 0) {
-                    for (let i = 0; i < Math.min(dim1, 10); i++) {
+                    for (let i = 0; i < Math.min(dim1, MAX_SUBPLOTS); i++) {
                         const column = layerWeights.map(row => Math.abs(row[i]));
                         extractedFeatures.push({data: column, title: `F${i}`, imageSide: imageSide});
                     }
@@ -867,7 +1297,7 @@ body { padding-top: 20px; }
                 const h = shape[1];
                 const w = shape[2];
                 if (h === w && h > 0) { // Square kernels/maps
-                    for (let i = 0; i < Math.min(numFilters, 10); i++) {
+                    for (let i = 0; i < Math.min(numFilters, MAX_SUBPLOTS); i++) {
                         if (layerWeights[i] && Array.isArray(layerWeights[i]) && Array.isArray(layerWeights[i][0])) {
                              const filter2D = layerWeights[i].map(row => row.map(val => Math.abs(val)));
                             extractedFeatures.push({data2D: filter2D, title: `Slc ${i} (abs val)`, imageSide: h});
@@ -880,7 +1310,7 @@ body { padding-top: 20px; }
                 const h = shape[2];
                 const w = shape[3];
                 if (h === w && h > 0 && cIn > 0) { // Square kernels, at least one input channel
-                    for (let i = 0; i < Math.min(cOut, 10); i++) {
+                    for (let i = 0; i < Math.min(cOut, MAX_SUBPLOTS); i++) {
                          // Visualize weights for the first input channel layerWeights[i][0]
                         if (layerWeights[i] && layerWeights[i][0] && Array.isArray(layerWeights[i][0]) && Array.isArray(layerWeights[i][0][0])) {
                             const filter2D = layerWeights[i][0].map(row => row.map(val => Math.abs(val)));
@@ -892,13 +1322,13 @@ body { padding-top: 20px; }
 
             if (extractedFeatures.length === 0) {
                 Plotly.purge(featurePlotDiv);
-                featurePlotDiv.innerHTML = '<div class="alert alert-warning">Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).</div>';
+                // featurePlotDiv.innerHTML = '<div class="alert alert-warning">Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).</div>';
+                console.warn('Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).');
                 return;
             }
 
             const traces = [];
             const layoutUpdates = {};
-            const MAX_SUBPLOTS = 10;
             const numActualFeatures = Math.min(extractedFeatures.length, MAX_SUBPLOTS);
 
             const COLS = 5;
@@ -940,14 +1370,67 @@ body { padding-top: 20px; }
                  return;
             }
 
+            // Calculate square subplot dimensions
+            const SUBPLOT_SIZE = 200; // Size of each subplot in pixels
+            const PADDING = 10; // Padding between subplots
+            const MARGIN_LEFT = 42;
+            const MARGIN_RIGHT = 42;
+            const MARGIN_TOP = 42;
+            const MARGIN_BOTTOM = 42;
+
+            // Calculate total layout dimensions
+            const totalWidth = COLS * SUBPLOT_SIZE + (COLS - 1) * PADDING + MARGIN_LEFT + MARGIN_RIGHT;
+            const totalHeight = ROWS * SUBPLOT_SIZE + (ROWS - 1) * PADDING + MARGIN_TOP + MARGIN_BOTTOM;
+
+            // Calculate plotting rectangle dimensions
+            const plotWidth = totalWidth - MARGIN_LEFT - MARGIN_RIGHT;
+            const plotHeight = totalHeight - MARGIN_TOP - MARGIN_BOTTOM;
+
+            // Calculate subplot dimensions in the [0,1] domain
+            const subplotWidthDomain = SUBPLOT_SIZE / plotWidth;
+            const subplotHeightDomain = SUBPLOT_SIZE / plotHeight;
+
+            // Update layout with axis domains for square subplots
+            for(let k = 0; k < numActualFeatures; k++) {
+                const row = Math.floor(k / COLS);
+                const col = k % COLS;
+
+                const axisNumber = k + 1;
+                const xaxisName = 'x' + (axisNumber === 1 ? '' : axisNumber);
+                const yaxisName = 'y' + (axisNumber === 1 ? '' : axisNumber);
+
+                // Calculate domain for this subplot
+                const xStart = col * (subplotWidthDomain + PADDING / plotWidth);
+                const xEnd = xStart + subplotWidthDomain;
+                const yStart = 1 - (row + 1) * (subplotHeightDomain + PADDING / plotHeight);
+                const yEnd = yStart + subplotHeightDomain;
+
+                layoutUpdates[xaxisName] = {
+                    domain: [xStart, xEnd],
+                    showgrid: false,
+                    zeroline: false,
+                    showticklabels: false
+                };
+
+                layoutUpdates[yaxisName] = {
+                    domain: [yStart, yEnd],
+                    scaleanchor: xaxisName,
+                    scaleratio: 1, // This ensures square aspect ratio
+                    showgrid: false,
+                    zeroline: false,
+                    showticklabels: false
+                };
+            }
+
             const finalLayout = {
                 title: `Weight Feature Visualization - Layer ${layerIndex} (Epoch ${epoch}, Batch ${batchIdx})`,
                 grid: { rows: ROWS, columns: COLS, pattern: 'independent'},
                 ...layoutUpdates,
-                margin: { l: 25, r: 25, b: 25, t: 70, pad: 2 }, // Compact margins
+                width: totalWidth,
+                height: totalHeight,
+                margin: { l: MARGIN_LEFT, r: MARGIN_RIGHT, b: MARGIN_BOTTOM, t: MARGIN_TOP, pad: PADDING },
                 hovermode: 'closest'
             };
-            // featurePlotDiv.style.height = `${ROWS * (extractedFeatures[0].imageSide * 3 + 40)}px`; // Optional: dynamic height adjustment
 
             Plotly.newPlot(featurePlotDiv, traces, finalLayout);
         }
