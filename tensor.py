@@ -70,7 +70,7 @@ class Tensor:
         return self + other
 
     def sum(self, axis=None, keepdims=False):
-        out = self.__class__(raw_data=self.data.sum(axis=axis, keepdims=keepdims), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.sum(axis=axis, keepdims=keepdims).astype(self.dtype), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
@@ -87,7 +87,7 @@ class Tensor:
         return out
 
     def mean(self, axis=None, keepdims=False):
-        out = self.__class__(raw_data=self.data.mean(axis=axis, keepdims=keepdims), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.mean(axis=axis, keepdims=keepdims).astype(self.dtype), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
