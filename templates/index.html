@@ -1285,6 +1285,7 @@ body { padding-top: 20px; }
             if (!logEntry || !logEntry.weights || !logEntry.weights[layerIndex]) {
                 Plotly.purge(featurePlotDiv);
                 featurePlotDiv.innerHTML = '<div class="alert alert-warning">Weight data not available for this selection.</div>';
+                console.warn(`Weight data not available for this selection. (${epoch}, ${batchIdx}, ${layerIndex})`);
                 return;
             }
 
@@ -1339,7 +1340,7 @@ body { padding-top: 20px; }
 
             if (extractedFeatures.length === 0) {
                 Plotly.purge(featurePlotDiv);
-                // featurePlotDiv.innerHTML = '<div class="alert alert-warning">Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).</div>';
+                featurePlotDiv.innerHTML = '<div class="alert alert-warning">Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).</div>';
                 console.warn('Selected layer weights are not in a recognized format for this feature grid visualization (e.g., 2D matrix with columns reshapeable to squares, or 3D/4D tensor with square kernels).');
                 return;
             }
@@ -1449,6 +1450,7 @@ body { padding-top: 20px; }
                 hovermode: 'closest'
             };
 
+            Plotly.purge(featurePlotDiv);
             Plotly.newPlot(featurePlotDiv, traces, finalLayout);
         }
 
