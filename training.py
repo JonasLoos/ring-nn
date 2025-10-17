@@ -7,7 +7,7 @@ def print_frac(a, b):
     return f'{a:{len(str(b))}}/{b}'
 
 
-def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=True, log_to_terminal=True, log_to_file=True, log_to_wandb=False, wandb_project=''):
+def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=True, log_to_terminal=True, log_to_file=False, log_to_wandb=False, wandb_project=''):
     if log_to_wandb:
         import wandb
         wandb.init(project=wandb_project)
@@ -41,13 +41,13 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                     print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg. grad. change: {opt_logs['abs_update_final']:.2e} (f: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
                 if log_to_file:
                     train_logs.append({
-                        # 'weights': [w.data.copy() for w in nn.weights],
+                        'weights': [w.data.copy() for w in nn.weights],
                         'loss': loss.data.item(),
                         'accuracy': accuracy,
                         'abs_update_float': opt_logs['abs_update_float'],
                         'abs_update_final': opt_logs['abs_update_final'],
-                        # 'updates_float': opt_logs['updates_float'],
-                        # 'updates_final': opt_logs['updates_final'],
+                        'updates_float': opt_logs['updates_float'],
+                        'updates_final': opt_logs['updates_final'],
                         'lr': optimizer.lr,
                         'epoch': epoch,
                         'i': i,
