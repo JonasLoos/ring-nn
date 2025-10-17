@@ -1,5 +1,3 @@
-import pickle
-from datetime import datetime
 from optimizer import SGD, Adam
 from nn import Sequential, RingFF, RingConv
 from data import load_mnist
@@ -29,7 +27,7 @@ if __name__ == '__main__':
     train_dl, test_dl = load_mnist(batch_size=200)
     train(
         nn = nn,
-        optimizer = SGD(nn, lr=40.0, lr_decay=0.998),
+        optimizer = SGD(nn, lr=400.0, lr_decay=0.998),
         loss_fn = lambda a, b: a.cross_entropy(b),
         train_dl = train_dl,
         test_dl = test_dl,

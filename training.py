@@ -11,6 +11,15 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
     if log_to_wandb:
         import wandb
         wandb.init(project=wandb_project)
+        wandb.config.update({
+            "nn": nn.__class__.__name__,
+            "optimizer": optimizer.__class__.__name__,
+            "learning_rate": optimizer.lr,
+            "lr_decay": optimizer.lr_decay,
+            "epochs": epochs,
+            "project": wandb_project,
+            "loss_fn": loss_fn.__class__.__name__,
+        })
 
     try:
         train_logs = []
