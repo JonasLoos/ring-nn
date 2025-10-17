@@ -14,21 +14,22 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
         wandb.config.update({
             "nn": nn.__class__.__name__,
             "optimizer": optimizer.__class__.__name__,
-            "learning_rate": optimizer.lr,
+            "initial_lr": optimizer.lr,
             "lr_decay": optimizer.lr_decay,
             "epochs": epochs,
             "project": wandb_project,
             "loss_fn": loss_fn.__class__.__name__,
+            "nparams": nn.nparams,
         })
 
     try:
         train_logs = []
 
+        total_training_step = -1
         for epoch in range(epochs):
             if log_to_terminal:
                 print("-" * 100)
                 print(f"Epoch {print_frac(epoch+1, epochs)}")
-            total_training_step = -1
             for i, (x, y) in enumerate(train_dl):
                 total_training_step += 1
                 pred = nn(x)
@@ -60,6 +61,7 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                         'accuracy': accuracy,
                         'abs_update_float': opt_logs['abs_update_float'],
                         'abs_update_final': opt_logs['abs_update_final'],
+                        'lr': optimizer.lr,
                     })
                 # Clear references and force garbage collection every few batches
                 del pred, loss, accuracy

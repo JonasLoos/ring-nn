@@ -14,6 +14,10 @@ class Module:
                 all_weights += m.weights
         return all_weights
 
+    @property
+    def nparams(self) -> int:
+        return sum(w.size for w in self.weights)
+
     def save(self, path: str):
         with open(path, 'wb') as f:
             pickle.dump(self.weights, f)
