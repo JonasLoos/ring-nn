@@ -331,7 +331,7 @@ class RingTensor(Tensor):
             out._backward = _backward
         return out
 
-    def sin(self) -> Self:
+    def sin2(self) -> Self:
         # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x) * 0.5
         activation = (np.sin(self.as_float()*np.pi - np.pi/2) + 1) * self.sign * 0.5
         out = RingTensor(activation, requires_grad=self._rg)
@@ -343,6 +343,18 @@ class RingTensor(Tensor):
                 if self._rg:
                     # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
                     self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign * 0.5
+            out._backward = _backward
+        return out
+
+    def cos(self) -> Self:
+        out = RingTensor(np.cos(self.as_float()*np.pi), requires_grad=self._rg)
+
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    self._grad += out._grad * -np.pi * np.sin(self.as_float()*np.pi)
             out._backward = _backward
         return out
 

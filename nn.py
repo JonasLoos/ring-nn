@@ -35,7 +35,8 @@ class RingFF(Module):
         # We don't need any bias, because it would be mathematically equivalent to just shifting the weights of the following layer by the corresponding amount.
 
     def __call__(self, x: Tensor) -> Tensor:
-        return (x.unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=-2)
+        return (x.unsqueeze(-1) - self._weights[0]).cos().mean(axis=-2)
+        # return (x.unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=-2)
 
 
 class RingConv(Module):

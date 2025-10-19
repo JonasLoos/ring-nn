@@ -534,7 +534,7 @@ class TestRingTensorOps(unittest.TestCase):
             
         self._test_ring_op(
             "Ring Sin",
-            lambda x: x.sin(),
+            lambda x: x.sin2(),
             torch_sin_op,
             expected_sin_data,
             (rt,),
