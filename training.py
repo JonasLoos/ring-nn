@@ -20,6 +20,8 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
             "project": wandb_project,
             "loss_fn": loss_fn.__class__.__name__,
             "nparams": nn.nparams,
+            "train_samples": len(train_dl.x),
+            "test_samples": len(test_dl.x),
         })
 
     try:

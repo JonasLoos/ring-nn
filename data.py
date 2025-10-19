@@ -3,7 +3,6 @@ import math
 import urllib.request
 import os
 import gzip
-import csv
 from tensor import RingTensor, RealTensor
 
 
@@ -123,12 +122,11 @@ def load_cifar10(batch_size=1):
     )
 
 
-def load_higgs(batch_size=1, train_size=100000, test_size=10000):
+def load_higgs(batch_size=1, train_size=None, test_size=None):
     """
     Load the Higgs Boson dataset from UCI repository.
 
     The dataset has 28 features and binary classification (signal vs background).
-    We'll use a subset for faster training/testing.
     """
     higgs_url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/00280/HIGGS.csv.gz'
     higgs_path = 'HIGGS.csv.gz'
@@ -137,41 +135,18 @@ def load_higgs(batch_size=1, train_size=100000, test_size=10000):
         print("Downloading Higgs Boson dataset...")
         urllib.request.urlretrieve(higgs_url, higgs_path)
 
-    print("Loading Higgs Boson dataset...")
+    num_train = train_size if train_size is not None else 10_500_000
+    num_test = test_size if test_size is not None else 500_000
+    print(f"Loading Higgs Boson dataset ({num_train}+{num_test} samples) ...")
 
-    # Read the compressed CSV file
-    rows = []
-    total_read = 0
-
+    # Read the compressed CSV file directly into numpy array
     with gzip.open(higgs_path, 'rt') as f:
-        csv_reader = csv.reader(f)
-        for row in csv_reader:
-            rows.append([float(x) for x in row])
-            total_read += 1
-            if total_read >= train_size + test_size:
-                break
-
-    # Convert to numpy array
-    data = np.array(rows)
+        data = np.loadtxt(f, delimiter=',', dtype=np.float32, max_rows=num_train + num_test)
 
     # Split features and labels
     # First column is the class label (1 for signal, 0 for background)
     y_data = data[:, 0]  # Labels
     x_data = data[:, 1:]  # Features (28 features)
-
-    # Normalize features
-    x_mean = np.mean(x_data, axis=0)
-    x_std = np.std(x_data, axis=0)
-    x_data = (x_data - x_mean) / (x_std + 1e-8)  # Add small epsilon to avoid division by zero
-
-    # Split into train and test
-    x_train = x_data[:train_size]
-    y_train = y_data[:train_size]
-    x_test = x_data[train_size:train_size + test_size]
-    y_test = y_data[train_size:train_size + test_size]
-
-    def convert_x(data):
-        return [RingTensor(x) for x in data]
 
     def convert_y(data):
         result = []
@@ -182,8 +157,15 @@ def load_higgs(batch_size=1, train_size=100000, test_size=10000):
             result.append(RealTensor(tmp))
         return result
 
-    x_train, y_train = convert_x(x_train), convert_y(y_train)
-    x_test, y_test = convert_x(x_test), convert_y(y_test)
+    # Normalize features
+    x_mean = np.mean(x_data, axis=0)
+    x_std = np.std(x_data, axis=0)
+    x_data = (x_data - x_mean) / (x_std + 1e-8)
+    x_data = [RingTensor(x) for x in x_data]
+    y_data = convert_y(y_data)
+
+    x_train, y_train = x_data[:num_train], y_data[:num_train]
+    x_test, y_test = x_data[num_train:], y_data[num_train:]
 
     print(f"Loaded Higgs dataset: {len(x_train)} training samples, {len(x_test)} test samples")
     print(f"Features: {x_train[0].shape[0]}, Classes: 2 (signal/background)")

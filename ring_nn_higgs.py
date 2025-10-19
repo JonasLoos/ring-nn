@@ -25,7 +25,7 @@ RingNN = lambda: Sequential([
 
 if __name__ == '__main__':
     nn = RingNN()
-    train_dl, test_dl = load_higgs(batch_size=200, train_size=50000, test_size=10000)
+    train_dl, test_dl = load_higgs(batch_size=200, train_size=500_000, test_size=50_000)
     train(
         nn = nn,
         optimizer = Adam(nn, lr=0.01, lr_decay=0.995),
