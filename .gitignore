@@ -3,6 +3,7 @@ __pycache__
 *.npz
 *.pkl
 *.tar.gz
+*.csv.gz
 
 cifar-10-batches-py/
 logs/
