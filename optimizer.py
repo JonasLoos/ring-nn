@@ -77,4 +77,9 @@ class Adam:
             abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
         
         self.lr *= self.lr_decay
-        return abs_update_float, abs_update_final
+        return {
+            'abs_update_float': abs_update_float,
+            'abs_update_final': abs_update_final,
+            'updates_float': [],  # Adam doesn't store individual updates
+            'updates_final': []
+        }
