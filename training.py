@@ -93,9 +93,8 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                 wandb.log({
                     'step': total_training_step,
                     'epoch': epoch,
-                    'i': i,
-                    'loss': test_loss,
-                    'accuracy': test_accuracy,
+                    'test_loss': test_loss,
+                    'test_accuracy': test_accuracy,
                 })
 
     except KeyboardInterrupt:
