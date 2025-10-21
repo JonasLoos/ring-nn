@@ -40,7 +40,7 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                 loss.backward()
                 opt_logs = optimizer()
                 if log_to_terminal:
-                    print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg grad change: {opt_logs['abs_update_final']:.+2e} (float: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
+                    print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg grad change: {opt_logs['abs_update_final']:+.2e} (float: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
                 if log_to_file:
                     train_logs.append({
                         'weights': [w.data.copy() for w in nn.weights],
