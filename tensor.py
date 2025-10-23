@@ -161,6 +161,19 @@ class Tensor:
                     self._grad += out._grad.reshape(self.data.shape)
             out._backward = _backward
         return out
+    
+    def flatten(self, *axes: int):
+        new_shape = []
+        remaining = 1
+        for i, size in enumerate(self.shape):
+            if i not in axes:
+                new_shape.append(size * remaining)
+                remaining = 1
+            else:
+                remaining *= size
+        if remaining != 1:
+            raise ValueError(f"Cannot flatten tensor with shape {self.shape} along last dimension")
+        return self.reshape(new_shape)
 
     def unsqueeze(self, axis):
         out = self.__class__(raw_data=np.expand_dims(self.data, axis=axis), requires_grad=self._rg)

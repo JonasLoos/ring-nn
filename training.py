@@ -24,6 +24,11 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
             "test_samples": len(test_dl.x),
         })
 
+    # Print network architecture
+    print("Network:")
+    print(nn)
+    print()
+
     try:
         train_logs = []
 
