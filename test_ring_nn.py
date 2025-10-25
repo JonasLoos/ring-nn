@@ -11,13 +11,17 @@ def to_torch(numpy_data, requires_grad=True, dtype=torch.float32):
 class TestRealTensorOps(unittest.TestCase):
     def assert_tensors_close(self, custom_tensor, torch_tensor, rtol=1e-5, atol=1e-7, check_grad=True):
         # Check data values
-        self.assertTrue(np.allclose(custom_tensor.data, torch_tensor.detach().numpy(), rtol=rtol, atol=atol),
-                       f"Data mismatch: custom={custom_tensor.data}, torch={torch_tensor.detach().numpy()}")
+        custom_data = custom_tensor.data.cpu().numpy() if hasattr(custom_tensor.data, 'cpu') else custom_tensor.data
+        torch_data = torch_tensor.detach().cpu().numpy() if hasattr(torch_tensor, 'cpu') else torch_tensor.detach().numpy()
+        self.assertTrue(np.allclose(custom_data, torch_data, rtol=rtol, atol=atol),
+                       f"Data mismatch: custom={custom_data}, torch={torch_data}")
         
         # Check gradients if needed
         if check_grad and custom_tensor._grad is not None and torch_tensor.grad is not None:
-            self.assertTrue(np.allclose(custom_tensor._grad, torch_tensor.grad.numpy(), rtol=rtol, atol=atol),
-                           f"Grad mismatch: custom={custom_tensor._grad}, torch={torch_tensor.grad.numpy()}")
+            custom_grad = custom_tensor._grad.cpu().numpy() if hasattr(custom_tensor._grad, 'cpu') else custom_tensor._grad
+            torch_grad = torch_tensor.grad.cpu().numpy() if hasattr(torch_tensor.grad, 'cpu') else torch_tensor.grad.numpy()
+            self.assertTrue(np.allclose(custom_grad, torch_grad, rtol=rtol, atol=atol),
+                           f"Grad mismatch: custom={custom_grad}, torch={torch_grad}")
 
     def _test_operation(self, op_name, custom_op, torch_op, custom_inputs, torch_inputs, params_to_check=()):
         # Forward pass
@@ -351,12 +355,16 @@ class TestRealTensorOps(unittest.TestCase):
         loss_torch = -torch.sum(targets_torch * log_softmax_preds_torch) / preds_torch.shape[0]
         
         # Check forward result
-        self.assertTrue(np.allclose(ce_rt.data, loss_torch.detach().numpy(), atol=1e-6))
+        ce_rt_np = ce_rt.data.cpu().numpy() if hasattr(ce_rt.data, 'cpu') else ce_rt.data
+        loss_torch_np = loss_torch.detach().cpu().numpy() if hasattr(loss_torch, 'cpu') else loss_torch.detach().numpy()
+        self.assertTrue(np.allclose(ce_rt_np, loss_torch_np, atol=1e-6))
         
         # Check gradients
         ce_rt.sum().backward()
         loss_torch.sum().backward()
-        self.assertTrue(np.allclose(preds_rt._grad, preds_torch.grad.numpy(), atol=1e-5))
+        preds_rt_grad_np = preds_rt._grad.cpu().numpy() if hasattr(preds_rt._grad, 'cpu') else preds_rt._grad
+        preds_torch_grad_np = preds_torch.grad.cpu().numpy() if hasattr(preds_torch.grad, 'cpu') else preds_torch.grad.numpy()
+        self.assertTrue(np.allclose(preds_rt_grad_np, preds_torch_grad_np, atol=1e-5))
 
     def test_sliding_window_2d(self):
         # Create input data in NHWC format (batch, height, width, channels)
@@ -382,7 +390,8 @@ class TestRealTensorOps(unittest.TestCase):
             for j in range(3):
                 expected_windows[0, i, j, 0] = data[0, i:i+2, j:j+2, 0]
         
-        self.assertTrue(np.allclose(windows.data, expected_windows))
+        windows_np = windows.data.cpu().numpy() if hasattr(windows.data, 'cpu') else windows.data
+        self.assertTrue(np.allclose(windows_np, expected_windows))
         
         # Test backward pass - only verify shape
         windows.sum().backward()
@@ -408,18 +417,22 @@ class TestRealTensorOps(unittest.TestCase):
 
 class TestRingTensorOps(unittest.TestCase):
     RT_DTYPE = RingTensor.dtype
-    RT_MIN = RingTensor.min_value
-    RT_MAX = RingTensor.max_value
+    RT_MIN = int(RingTensor.min_value)
+    RT_MAX = int(RingTensor.max_value)
     RT_MIN_F = float(RT_MIN)
     RT_MAX_F = float(RT_MAX)
+    RT_DTYPE_NP = np.int16  # numpy equivalent
 
     def assert_tensors_equal(self, custom_data, expected_data, msg_prefix=""):
-        self.assertTrue(np.array_equal(custom_data, expected_data.astype(custom_data.dtype)),
-                        f"{msg_prefix} mismatch: custom={custom_data}, expected={expected_data}")
+        custom_np = custom_data.cpu().numpy() if hasattr(custom_data, 'cpu') else custom_data
+        expected_np = expected_data if isinstance(expected_data, np.ndarray) else expected_data.astype(custom_np.dtype)
+        self.assertTrue(np.array_equal(custom_np, expected_np),
+                        f"{msg_prefix} mismatch: custom={custom_np}, expected={expected_np}")
 
     def assert_grad_close(self, custom_tensor, torch_grad_numpy, rtol=1e-5, atol=1e-7, msg_prefix=""):
-        self.assertTrue(np.allclose(custom_tensor._grad, torch_grad_numpy, rtol=rtol, atol=atol),
-                        f"{msg_prefix} grad mismatch: custom={custom_tensor._grad}, torch={torch_grad_numpy}")
+        custom_grad = custom_tensor._grad.cpu().numpy() if hasattr(custom_tensor._grad, 'cpu') else custom_tensor._grad
+        self.assertTrue(np.allclose(custom_grad, torch_grad_numpy, rtol=rtol, atol=atol),
+                        f"{msg_prefix} grad mismatch: custom={custom_grad}, torch={torch_grad_numpy}")
 
     def _reset_grads(self, *tensor_pairs):
         for custom_tensor, torch_tensor in tensor_pairs:
@@ -435,10 +448,11 @@ class TestRingTensorOps(unittest.TestCase):
         custom_input_data = [inp.data if hasattr(inp, 'data') else inp for inp in custom_inputs]
         expected_data = expected_data_op(*custom_input_data)
         
+        custom_data_np = custom_result.data.cpu().numpy() if hasattr(custom_result.data, 'cpu') else custom_result.data
         if expect_float:
-            self.assertTrue(np.allclose(custom_result.data, expected_data), f"Data mismatch ({op_name}): custom={custom_result.data}, expected={expected_data}")
+            self.assertTrue(np.allclose(custom_data_np, expected_data), f"Data mismatch ({op_name}): custom={custom_data_np}, expected={expected_data}")
         else:
-            self.assert_tensors_equal(custom_result.data, expected_data, f"Data mismatch ({op_name}): custom={custom_result.data}, expected={expected_data}")
+            self.assert_tensors_equal(custom_result.data, expected_data, f"Data mismatch ({op_name}): custom={custom_data_np}, expected={expected_data}")
         
         # Gradient check
         torch_result = torch_op(*torch_inputs)
@@ -452,71 +466,89 @@ class TestRingTensorOps(unittest.TestCase):
         return custom_result
 
     def test_add_ring(self):
-        a_data = np.array([[10, 20], [70, 120]], dtype=self.RT_DTYPE)
-        b_data = np.array([[50, 60], [10, 10]], dtype=self.RT_DTYPE)
+        a_data = np.array([[10, 20], [70, 120]], dtype=self.RT_DTYPE_NP)
+        b_data = np.array([[50, 60], [10, 10]], dtype=self.RT_DTYPE_NP)
         
         a_rt = RingTensor(raw_data=a_data, requires_grad=True)
         b_rt = RingTensor(raw_data=b_data, requires_grad=True)
         a_torch = to_torch(a_data.astype(np.float32), requires_grad=True)
         b_torch = to_torch(b_data.astype(np.float32), requires_grad=True)
         
+        def expected_add(d1, d2):
+            # d1 and d2 are torch tensors, convert to numpy for the operation
+            d1_np = d1.cpu().numpy() if hasattr(d1, 'cpu') else d1
+            d2_np = d2.cpu().numpy() if hasattr(d2, 'cpu') else d2
+            return (d1_np.astype(np.int32) + d2_np.astype(np.int32)).astype(self.RT_DTYPE_NP)
+        
         self._test_ring_op(
             "Add",
             lambda x, y: x + y,
             lambda x, y: x + y,
-            lambda d1, d2: (d1.astype(np.int32) + d2.astype(np.int32)).astype(self.RT_DTYPE),
+            expected_add,
             (a_rt, b_rt),
             (a_torch, b_torch),
             [(a_rt, a_torch), (b_rt, b_torch)]
         )
 
     def test_neg_ring(self):
-        data = np.array([self.RT_MIN, 0, 10, self.RT_MAX], dtype=self.RT_DTYPE)
+        data = np.array([self.RT_MIN, 0, 10, self.RT_MAX], dtype=self.RT_DTYPE_NP)
         rt = RingTensor(raw_data=data, requires_grad=True)
         torch_data = to_torch(data.astype(np.float32), requires_grad=True)
+        
+        def expected_neg(d):
+            d_np = d.cpu().numpy() if hasattr(d, 'cpu') else d
+            return (-d_np).astype(self.RT_DTYPE_NP)
         
         self._test_ring_op(
             "Neg",
             lambda x: -x,
             lambda x: -x,
-            lambda d: (-d).astype(self.RT_DTYPE),
+            expected_neg,
             (rt,),
             (torch_data,),
             [(rt, torch_data)]
         )
 
     def test_sum_ring(self):
-        data = np.array([[10, 20], [30, 100]], dtype=self.RT_DTYPE)
+        data = np.array([[10, 20], [30, 100]], dtype=self.RT_DTYPE_NP)
         rt = RingTensor(raw_data=data, requires_grad=True)
         torch_data = to_torch(data.astype(np.float32), requires_grad=True)
+        
+        def expected_sum(d):
+            d_np = d.cpu().numpy() if hasattr(d, 'cpu') else d
+            return np.array(d_np.sum(), dtype=self.RT_DTYPE_NP)
         
         self._test_ring_op(
             "Sum",
             lambda x: x.sum(),
             lambda x: x.sum(),
-            lambda d: np.array(d.sum(), dtype=self.RT_DTYPE),
+            expected_sum,
             (rt,),
             (torch_data,),
             [(rt, torch_data)]
         )
 
     def test_mean_ring(self):
-        data = np.array([[10, 11], [20, 21]], dtype=self.RT_DTYPE)
+        data = np.array([[10, 11], [20, 21]], dtype=self.RT_DTYPE_NP)
         rt = RingTensor(raw_data=data, requires_grad=True)
         torch_data = to_torch(data.astype(np.float32), requires_grad=True)
+        
+        def expected_mean(d):
+            d_np = d.cpu().numpy() if hasattr(d, 'cpu') else d
+            return np.array(d_np.mean(), dtype=self.RT_DTYPE_NP)
         
         self._test_ring_op(
             "Mean",
             lambda x: x.mean(),
             lambda x: x.mean(),
-            lambda d: np.array(d.mean(), dtype=rt.dtype),
+            expected_mean,
             (rt,),
             (torch_data,),
             [(rt, torch_data)]
         )
 
     def test_ring_sin(self):
-        data = np.array([-100, 0, 50, self.RT_MAX // 2, self.RT_MIN // 2], dtype=self.RT_DTYPE)
+        data = np.array([-100, 0, 50, self.RT_MAX // 2, self.RT_MIN // 2], dtype=self.RT_DTYPE_NP)
         rt = RingTensor(raw_data=data, requires_grad=True)
         torch_data = to_torch(data.astype(np.float32), requires_grad=True)
         
@@ -527,10 +559,11 @@ class TestRingTensorOps(unittest.TestCase):
             return y_f_torch * (-self.RT_MIN_F)
             
         def expected_sin_data(raw_d):
-            as_float = raw_d.astype(np.float32) / (-self.RT_MIN_F)
-            sign_raw = np.sign(raw_d.astype(np.float32))
+            raw_d_np = raw_d.cpu().numpy() if hasattr(raw_d, 'cpu') else raw_d
+            as_float = raw_d_np.astype(np.float32) / (-self.RT_MIN_F)
+            sign_raw = np.sign(raw_d_np.astype(np.float32))
             y_f = (np.sin(as_float * np.pi - np.pi / 2.0) + 1.0) * sign_raw * 0.5
-            return (y_f * (-self.RT_MIN_F)).clip(self.RT_MIN, self.RT_MAX).astype(self.RT_DTYPE)
+            return (y_f * (-self.RT_MIN_F)).clip(self.RT_MIN, self.RT_MAX).astype(self.RT_DTYPE_NP)
             
         self._test_ring_op(
             "Ring Sin",
@@ -543,23 +576,26 @@ class TestRingTensorOps(unittest.TestCase):
         )
 
     def test_ring_real(self):
-        data = np.array([[-10, 20], [30, -40]], dtype=self.RT_DTYPE)
+        data = np.array([[-10, 20], [30, -40]], dtype=self.RT_DTYPE_NP)
         rt = RingTensor(raw_data=data, requires_grad=True)
         
         real_t = rt.real()
         
         # Check type and data
         self.assertIsInstance(real_t, RealTensor)
-        self.assertTrue(np.allclose(real_t.data, rt.as_float()))
+        real_data_np = real_t.data.cpu().numpy() if hasattr(real_t.data, 'cpu') else real_t.data
+        rt_float_np = rt.as_float().cpu().numpy() if hasattr(rt.as_float(), 'cpu') else rt.as_float()
+        self.assertTrue(np.allclose(real_data_np, rt_float_np))
         self.assertEqual(real_t._rg, rt._rg)
         
         # Check conversion back to ring tensor
         rt_from_real = RingTensor(real_t.as_float())
-        self.assertTrue(np.allclose(rt_from_real.data, data))
+        rt_from_real_np = rt_from_real.data.cpu().numpy() if hasattr(rt_from_real.data, 'cpu') else rt_from_real.data
+        self.assertTrue(np.allclose(rt_from_real_np, data))
 
     def test_sliding_window_2d_ring(self):
         # Create input data in NHWC format (batch, height, width, channels)
-        data = np.arange(16, dtype=RingTensor.dtype).reshape(1, 4, 4, 1)
+        data = np.arange(16, dtype=self.RT_DTYPE_NP).reshape(1, 4, 4, 1)
         
         # Our custom tensor
         rt = RingTensor(raw_data=data, requires_grad=True)
@@ -576,7 +612,7 @@ class TestRingTensorOps(unittest.TestCase):
         self.assertEqual(windows.shape, (1, 3, 3, 1, 2, 2))
         
         # Check output values
-        expected_windows = np.zeros((1, 3, 3, 1, 2, 2), dtype=RingTensor.dtype)
+        expected_windows = np.zeros((1, 3, 3, 1, 2, 2), dtype=self.RT_DTYPE_NP)
         for i in range(3):
             for j in range(3):
                 expected_windows[0, i, j, 0] = data[0, i:i+2, j:j+2, 0]

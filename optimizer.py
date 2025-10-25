@@ -1,5 +1,5 @@
-import numpy as np
-from tensor import RingTensor
+import torch
+from tensor import RingTensor, device
 
 
 
@@ -16,11 +16,11 @@ class SGD:
         updates_final = []
         for w in self.nn.weights:
             update = w._grad * self.lr
-            update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
+            update_final = (update.clamp(-1, 1) * -RingTensor.min_value).to(RingTensor.dtype)
             w.data -= update_final
             w.reset_grad()
-            abs_update_float += np.abs(update).mean()
-            abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
+            abs_update_float += torch.abs(update).mean()
+            abs_update_final += torch.abs(update_final.to(torch.float32)).mean() / -RingTensor.min_value
             updates_float.append(update)
             updates_final.append(update_final)
         self.lr *= self.lr_decay
@@ -41,8 +41,8 @@ class Adam:
         self.beta2 = 0.999
         self.epsilon = 1e-8
         self.t = 0
-        self.m = [np.zeros_like(w.data, dtype=np.float32) for w in self.nn.weights]
-        self.v = [np.zeros_like(w.data, dtype=np.float32) for w in self.nn.weights]
+        self.m = [torch.zeros_like(w.data, dtype=torch.float32) for w in self.nn.weights]
+        self.v = [torch.zeros_like(w.data, dtype=torch.float32) for w in self.nn.weights]
 
     def __call__(self):
         self.t += 1
@@ -52,7 +52,7 @@ class Adam:
             if w._grad is None:
                 continue
 
-            grad = w._grad.astype(np.float32) # Ensure gradient is float32 for calculations
+            grad = w._grad.to(torch.float32) # Ensure gradient is float32 for calculations
 
             # Update biased first moment estimate
             self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
@@ -65,16 +65,16 @@ class Adam:
             v_hat = self.v[i] / (1 - self.beta2 ** self.t)
 
             # Calculate the update
-            update = self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+            update = self.lr * m_hat / (torch.sqrt(v_hat) + self.epsilon)
             
             # Apply update to RingTensor (quantized)
-            update_final = (update.clip(-1, 1) * -RingTensor.min_value).astype(RingTensor.dtype)
+            update_final = (update.clamp(-1, 1) * -RingTensor.min_value).to(RingTensor.dtype)
             w.data -= update_final
             
             w.reset_grad()
 
-            abs_update_float += np.abs(update).mean()
-            abs_update_final += np.abs(update_final).mean() / -RingTensor.min_value
+            abs_update_float += torch.abs(update).mean()
+            abs_update_final += torch.abs(update_final.to(torch.float32)).mean() / -RingTensor.min_value
         
         self.lr *= self.lr_decay
         return {

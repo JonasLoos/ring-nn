@@ -1,7 +1,11 @@
-import numpy as np
+import torch
 from typing import Self, TypeVar
 from functools import wraps
 import contextlib
+from math import pi
+
+# Set default device
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
 def convert_other(f):
@@ -15,7 +19,7 @@ def convert_other(f):
     return wrapper
 
 
-Selflike = TypeVar('Selflike', bound = Self | int | float | np.ndarray)
+Selflike = TypeVar('Selflike', bound = Self | int | float | torch.Tensor)
 
 
 class Tensor:
@@ -23,33 +27,36 @@ class Tensor:
     min_value = None
     max_value = None
 
-    def __init__(self, *, raw_data: np.ndarray | None = None, requires_grad=False):
+    def __init__(self, *, raw_data: torch.Tensor | None = None, requires_grad=False):
         if self.dtype is None: raise ValueError("Use a subclass of Tensor")
         if raw_data is None: raise ValueError("raw_data must be provided")
-        self.data = raw_data
+        if isinstance(raw_data, torch.Tensor):
+            self.data = raw_data.to(device)
+        else:
+            self.data = torch.as_tensor(raw_data, device=device)
         # Disable gradient computation if in no_grad context
         self._rg = requires_grad and not _no_grad
         self._backward = None
         self._prev = set()
         self.reset_grad()
 
-    def as_float(self) -> np.ndarray:
+    def as_float(self) -> torch.Tensor:
         raise NotImplementedError("Subclasses must implement this method")
 
     def reset_grad(self):
-        self._grad = np.zeros_like(self.data, dtype=np.float32) if self._rg else None
+        self._grad = torch.zeros_like(self.data, dtype=torch.float32) if self._rg else None
 
     def set_to(self, other):
-        self.data = other.data.copy()
-        self._grad = other._grad.copy() if self._grad is not None else None
+        self.data = other.data.clone()
+        self._grad = other._grad.clone() if self._grad is not None else None
         self._rg = other._rg
         self.backward = None
         self._prev = set()
         return self
 
     @property
-    def sign(self) -> np.ndarray:
-        return np.sign(self.data)
+    def sign(self) -> torch.Tensor:
+        return torch.sign(self.data)
 
     @convert_other
     def __add__(self, other: Selflike) -> Self:
@@ -70,34 +77,67 @@ class Tensor:
         return self + other
 
     def sum(self, axis=None, keepdims=False):
-        out = self.__class__(raw_data=self.data.sum(axis=axis, keepdims=keepdims).astype(self.dtype), requires_grad=self._rg)
+        # Handle None axis case - torch uses no dim argument for sum all
+        if axis is None:
+            result = self.data.sum()
+        else:
+            result = self.data.sum(dim=axis, keepdim=keepdims)
+        out = self.__class__(raw_data=result.to(self.dtype), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
+
+            # Store the original shape for backward
+            original_shape = self.shape
+            original_ndim = len(original_shape)
 
             def _backward():
                 if self._rg:
                     g = out._grad
                     # restore the lost dimensions so broadcasting works
                     if not keepdims and axis is not None:
-                        g = np.expand_dims(g, axis=axis)
-                    self._grad += np.broadcast_to(g, self.shape)
+                        # Handle both single axis and tuple of axes
+                        axes = axis if isinstance(axis, tuple) else (axis,)
+                        # Normalize negative indices to positive
+                        axes = tuple(ax % original_ndim for ax in axes)
+                        # Sort axes to insert in correct order
+                        for ax in sorted(axes):
+                            g = g.unsqueeze(ax)
+                    self._grad += g.expand(self.shape)
 
             out._backward = _backward
         return out
 
     def mean(self, axis=None, keepdims=False):
-        out = self.__class__(raw_data=self.data.mean(axis=axis, keepdims=keepdims).astype(self.dtype), requires_grad=self._rg)
+        # Handle None axis case - torch uses no dim argument for mean all
+        # For integer dtypes, convert to float32 first
+        # TODO: maybe stay in integer domain, do division first, then sum, then add mean of reminders
+        data_for_mean = self.data.to(torch.float32) if not torch.is_floating_point(self.data) else self.data
+        if axis is None:
+            result = data_for_mean.mean()
+        else:
+            result = data_for_mean.mean(dim=axis, keepdim=keepdims)
+        out = self.__class__(raw_data=result.to(self.dtype), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
+
+            # Store the original shape for backward
+            original_shape = self.shape
+            original_ndim = len(original_shape)
 
             def _backward():
                 if self._rg:
                     g = out._grad / (self.size / out.size)  # scale by 1/N
                     if not keepdims and axis is not None:
-                        g = np.expand_dims(g, axis=axis)
-                    self._grad += np.broadcast_to(g, self.shape)
+                        # Handle both single axis and tuple of axes
+                        axes = axis if isinstance(axis, tuple) else (axis,)
+                        # Normalize negative indices to positive
+                        axes = tuple(ax % original_ndim for ax in axes)
+                        # Sort axes to insert in correct order
+                        for ax in sorted(axes):
+                            g = g.unsqueeze(ax)
+                    self._grad += g.expand(self.shape)
 
             out._backward = _backward
         return out
@@ -130,7 +170,7 @@ class Tensor:
                     build_topo(child)
                 topo.append(t)
         build_topo(self)
-        self._grad = np.ones_like(self.data, dtype=np.float32)
+        self._grad = torch.ones_like(self.data, dtype=torch.float32)
         for node in reversed(topo):
             if node._backward:
                 node._backward()
@@ -140,7 +180,7 @@ class Tensor:
 
     @classmethod
     def full(cls, shape, value, requires_grad=False):
-        return cls(np.full(shape, value, dtype=cls.dtype), requires_grad=requires_grad)
+        return cls(raw_data=torch.full(shape, value, dtype=cls.dtype, device=device), requires_grad=requires_grad)
 
     @property
     def shape(self):
@@ -148,7 +188,7 @@ class Tensor:
 
     @property
     def size(self):
-        return self.data.size
+        return self.data.numel()
 
     def reshape(self, shape):
         out = self.__class__(raw_data=self.data.reshape(shape), requires_grad=self._rg)
@@ -161,7 +201,7 @@ class Tensor:
                     self._grad += out._grad.reshape(self.data.shape)
             out._backward = _backward
         return out
-    
+
     def flatten(self, *axes: int):
         new_shape = []
         remaining = 1
@@ -176,34 +216,38 @@ class Tensor:
         return self.reshape(new_shape)
 
     def unsqueeze(self, axis):
-        out = self.__class__(raw_data=np.expand_dims(self.data, axis=axis), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.unsqueeze(axis), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
 
             def _backward():
                 if self._rg:
-                    self._grad += np.squeeze(out._grad, axis=axis)
+                    self._grad += out._grad.squeeze(axis)
             out._backward = _backward
         return out
 
     def squeeze(self, axis):
-        out = self.__class__(raw_data=np.squeeze(self.data, axis=axis), requires_grad=self._rg)
+        out = self.__class__(raw_data=self.data.squeeze(axis), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
 
             def _backward():
                 if self._rg:
-                    self._grad += np.expand_dims(out._grad, axis=axis)
+                    self._grad += out._grad.unsqueeze(axis)
             out._backward = _backward
         return out
 
     def sliding_window_2d(self, window_size: int, padding: int = 0, stride: int = 1) -> Self:
         # input shape: (batch, height, width, channels) -> output shape: (batch, new_height, new_width, channels, window_size, window_size)
-        data = np.pad(self.data, ((0,0), (padding, padding), (padding, padding), (0,0)), mode='constant')
-        data = np.lib.stride_tricks.sliding_window_view(data, (window_size, window_size), axis=(-3, -2))
-        data = data[:, ::stride, ::stride, :, :, :].copy()
+        data = torch.nn.functional.pad(self.data, (0, 0, padding, padding, padding, padding, 0, 0), mode='constant', value=0)
+        # Use unfold to create sliding windows
+        # unfold works on the last dimensions, so we need to permute
+        # NHWC -> NCHW for unfold, then back
+        data = data.permute(0, 3, 1, 2)  # NHWC -> NCHW
+        data = data.unfold(2, window_size, stride).unfold(3, window_size, stride)  # N, C, H', W', ws, ws
+        data = data.permute(0, 2, 3, 1, 4, 5).contiguous()  # N, H', W', C, ws, ws
         out = self.__class__(raw_data=data, requires_grad=self._rg)
 
         if not _no_grad:
@@ -217,7 +261,7 @@ class Tensor:
                     # Create gradient tensor for padded input
                     padded_h = self.shape[1] + 2 * padding
                     padded_w = self.shape[2] + 2 * padding
-                    grad_pad = np.zeros((B, padded_h, padded_w, C), dtype=np.float32)
+                    grad_pad = torch.zeros((B, padded_h, padded_w, C), dtype=torch.float32, device=device)
 
                     # Accumulate gradients
                     for h_start in range(window_size):
@@ -235,7 +279,7 @@ class Tensor:
 
     @classmethod
     def stack(cls, *tensors, axis=0):
-        out = cls(raw_data=np.stack([t.data for t in tensors], axis=axis), requires_grad=any(t._rg for t in tensors))
+        out = cls(raw_data=torch.stack([t.data for t in tensors], dim=axis), requires_grad=any(t._rg for t in tensors))
 
         if not _no_grad:
             out._prev = set(tensors)
@@ -255,14 +299,14 @@ class Tensor:
         """
         Sums grad_output along axes to revert broadcasting, so it matches original_input_shape.
         """
-        processed_grad = np.array(grad_output, copy=False) # Operate on a view
+        processed_grad = grad_output
         shape_out = list(processed_grad.shape)
         shape_in = list(original_input_shape)
 
         # 1. Sum over leading axes in grad_output not present in original_input_shape
         delta_dims = len(shape_out) - len(shape_in)
         if delta_dims > 0:
-            processed_grad = np.sum(processed_grad, axis=tuple(range(delta_dims)))
+            processed_grad = torch.sum(processed_grad, dim=tuple(range(delta_dims)))
             shape_out = list(processed_grad.shape) # Update shape_out
 
         # 2. Sum over axes that were 1 in original_input_shape but >1 in processed_grad's shape
@@ -278,9 +322,9 @@ class Tensor:
                     axes_to_sum_expansion.append(out_axis_idx)
 
         if axes_to_sum_expansion:
-            processed_grad = np.sum(processed_grad, axis=tuple(axes_to_sum_expansion), keepdims=True)
+            processed_grad = torch.sum(processed_grad, dim=tuple(axes_to_sum_expansion), keepdim=True)
 
-        return np.reshape(processed_grad, original_input_shape)
+        return processed_grad.reshape(original_input_shape)
 
 
 # Global flag to disable gradient computation
@@ -299,11 +343,11 @@ def no_grad():
 
 
 class RingTensor(Tensor):
-    # dtype = np.int8
-    dtype = np.int16
-    # dtype = np.int32
-    min_value = np.iinfo(dtype).min
-    max_value = np.iinfo(dtype).max
+    # dtype = torch.int8
+    dtype = torch.int16
+    # dtype = torch.int32
+    min_value = torch.iinfo(dtype).min
+    max_value = torch.iinfo(dtype).max
     # [min, max] corresponds to [-1, 1], with -1 and 1 being next to each other the number ring
     # the implementation assumes that -min_value is roughly equal to max_value
 
@@ -312,27 +356,31 @@ class RingTensor(Tensor):
             raise ValueError("Only one of data or raw_data can be provided")
         if data is not None:
             # convert data from [-1, 1] to [min, max]
-            raw_data = (np.array(data) * -self.min_value).clip(self.min_value, self.max_value).astype(self.dtype)
+            if isinstance(data, torch.Tensor):
+                data_tensor = data.to(dtype=torch.float32, device=device)
+            else:
+                data_tensor = torch.as_tensor(data, dtype=torch.float32, device=device)
+            raw_data = (data_tensor * -self.min_value).clamp(self.min_value, self.max_value).to(self.dtype)
         super().__init__(raw_data=raw_data, requires_grad=requires_grad)
 
-    def as_float(self) -> np.ndarray:
-        return self.data.astype(np.float32) / -self.min_value
+    def as_float(self) -> torch.Tensor:
+        return self.data.to(torch.float32) / -self.min_value
 
     def poly(self, order: float) -> Self:
         # polynomial activation: |x|^order * sign(x)
-        out = RingTensor(np.abs(self.as_float() + 1e-20)**order * self.sign, requires_grad=self._rg)
+        out = RingTensor(torch.abs(self.as_float() + 1e-20)**order * self.sign, requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
 
             def _backward():
                 if self._rg:
-                    self._grad += out._grad * order * (np.abs(self.as_float()) + 1e-20)**(order-1)
+                    self._grad += out._grad * order * (torch.abs(self.as_float()) + 1e-20)**(order-1)
             out._backward = _backward
         return out
 
     def poly_sigmoid(self, order: float, slope: float) -> Self:
-        out = RingTensor((1 + slope) * self.as_float() - slope * self.sign * (np.abs(self.as_float() + 1e-20)**order), requires_grad=self._rg)
+        out = RingTensor((1 + slope) * self.as_float() - slope * self.sign * (torch.abs(self.as_float() + 1e-20)**order), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
@@ -340,13 +388,13 @@ class RingTensor(Tensor):
             def _backward():
                 if self._rg:
                     # TODO: is a *self.sign missing here?
-                    self._grad += out._grad * (1 + slope) - slope * out._grad * order * (np.abs(self.as_float() + 1e-20)**(order-1))
+                    self._grad += out._grad * (1 + slope) - slope * out._grad * order * (torch.abs(self.as_float() + 1e-20)**(order-1))
             out._backward = _backward
         return out
 
     def sin2(self) -> Self:
         # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x) * 0.5
-        activation = (np.sin(self.as_float()*np.pi - np.pi/2) + 1) * self.sign * 0.5
+        activation = (torch.sin(self.as_float()*pi - pi/2) + 1) * self.sign * 0.5
         out = RingTensor(activation, requires_grad=self._rg)
 
         if not _no_grad:
@@ -355,25 +403,25 @@ class RingTensor(Tensor):
             def _backward():
                 if self._rg:
                     # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
-                    self._grad += out._grad * np.pi * np.cos(self.as_float()*np.pi - np.pi/2) * self.sign * 0.5
+                    self._grad += out._grad * pi * torch.cos(self.as_float()*pi - pi/2) * self.sign * 0.5
             out._backward = _backward
         return out
 
     def cos(self) -> Self:
-        out = RingTensor(np.cos(self.as_float()*np.pi), requires_grad=self._rg)
+        out = RingTensor(torch.cos(self.as_float()*pi), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
 
             def _backward():
                 if self._rg:
-                    self._grad += out._grad * -np.pi * np.sin(self.as_float()*np.pi)
+                    self._grad += out._grad * -pi * torch.sin(self.as_float()*pi)
             out._backward = _backward
         return out
 
     @classmethod
     def rand(cls, shape, requires_grad=False):
-        out = cls(raw_data=np.random.randint(cls.min_value, cls.max_value, size=shape, dtype=cls.dtype), requires_grad=requires_grad)
+        out = cls(raw_data=torch.randint(cls.min_value, cls.max_value, size=shape, dtype=cls.dtype, device=device), requires_grad=requires_grad)
         return out
 
     def real(self) -> Self:
@@ -390,18 +438,21 @@ class RingTensor(Tensor):
 
 
 class RealTensor(Tensor):
-    dtype = np.float32
-    min_value = -np.inf
-    max_value = np.inf
+    dtype = torch.float32
+    min_value = -float('inf')
+    max_value = float('inf')
 
-    def __init__(self, data=None, *, raw_data: np.ndarray | None = None, requires_grad=False):
+    def __init__(self, data=None, *, raw_data: torch.Tensor | None = None, requires_grad=False):
         if data is not None and raw_data is not None:
             raise ValueError("Only one of data or raw_data can be provided")
         if data is not None:
-            raw_data = np.array(data, dtype=self.dtype)
+            if isinstance(data, torch.Tensor):
+                raw_data = data.to(dtype=self.dtype, device=device)
+            else:
+                raw_data = torch.as_tensor(data, dtype=self.dtype, device=device)
         super().__init__(raw_data=raw_data, requires_grad=requires_grad)
 
-    def as_float(self) -> np.ndarray:
+    def as_float(self) -> torch.Tensor:
         return self.data
 
     @convert_other
@@ -439,7 +490,7 @@ class RealTensor(Tensor):
                 if self._rg:
                     self._grad += out._grad * other.data * self.data ** (other.data - 1)
                 if other._rg:
-                    other._grad += out._grad * np.log(self.data) * self.data ** other.data
+                    other._grad += out._grad * torch.log(self.data) * self.data ** other.data
             out._backward = _backward
         return out
 
@@ -447,7 +498,7 @@ class RealTensor(Tensor):
         return other ** self
 
     def abs(self) -> Self:
-        out = RealTensor(np.abs(self.data), requires_grad=self._rg)
+        out = RealTensor(torch.abs(self.data), requires_grad=self._rg)
 
         if not _no_grad:
             out._prev = {self}
@@ -464,13 +515,13 @@ class RealTensor(Tensor):
         n = logits.shape[0]
 
         # numerically-stable soft-max
-        shift = logits - logits.max(axis=1, keepdims=True)
-        exps  = np.exp(shift)
-        probs = exps / exps.sum(axis=1, keepdims=True)
+        shift = logits - logits.max(dim=1, keepdim=True)[0]
+        exps  = torch.exp(shift)
+        probs = exps / exps.sum(dim=1, keepdim=True)
 
         # cross-entropy loss
-        loss_val = -np.sum(tgt * np.log(probs + 1e-20)) / n
-        out = RealTensor(loss_val, requires_grad=self._rg or other._rg)
+        loss_val = -torch.sum(tgt * torch.log(probs + 1e-20)) / n
+        out = RealTensor(raw_data=loss_val.reshape(()), requires_grad=self._rg or other._rg)
 
         if not _no_grad:
             out._prev = {self, other}
@@ -483,7 +534,7 @@ class RealTensor(Tensor):
                     self._grad += grad
 
                 if other._rg:
-                    grad = out._grad * (-np.log(probs + 1e-20) / n)
+                    grad = out._grad * (-torch.log(probs + 1e-20) / n)
                     if other.shape != grad.shape:
                         grad = grad.reshape(other.shape)
                     other._grad += grad

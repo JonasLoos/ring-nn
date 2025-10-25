@@ -41,7 +41,7 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                 total_training_step += 1
                 pred = nn(x)
                 loss = loss_fn(pred, y)
-                accuracy = (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).mean()
+                accuracy = (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).float().mean()
                 loss.backward()
                 opt_logs = optimizer()
                 if log_to_terminal:
@@ -83,7 +83,7 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                 for test_i, (x, y) in enumerate(test_dl):
                     pred = nn(x)
                     test_loss = test_loss + loss_fn(pred, y).data.item()
-                    test_accuracy += (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).mean()
+                    test_accuracy += (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).float().mean()
 
                     # Force garbage collection every few batches to prevent memory accumulation
                     del pred
