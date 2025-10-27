@@ -125,11 +125,13 @@ class Sequential(Module):
 
 
 class Input(Model):
-    ff: Callable[[int], "Input"]
-    conv: Callable[[int, int, int, int], "Input"]
-    apply: Callable[[Callable[[RingTensor], Tensor]], "Input"]
-    weights: Callable[[], list[Tensor]]
-    nparams: Callable[[], int]
+    # placeholder methods for type annotations
+    def ff(self, output_size: int) -> "Input": ...
+    def conv(self, output_size: int, window_size: int = 3, padding: int = 1, stride: int = 1) -> "Input": ...
+    def apply(self, fn: Callable[[RingTensor], Tensor]) -> "Input": ...
+    def flatten(self, *axes: int) -> "Input": ...
+    def save(self, path: str): ...
+    def load(self, path: str) -> "Sequential": ...
     # also Tensor methods are available
 
     def __init__(self, shape: tuple[int, ...]):
@@ -140,40 +142,30 @@ class Input(Model):
     def __call__(self, x: Tensor) -> Tensor:
         return object.__getattribute__(self, "_network")(x)
 
-    def save(self, path: str):
-        object.__getattribute__(self, "_network").save(path)
-
-    def load(self, path: str):
-        object.__getattribute__(self, "_network").load(path)
-        return self
-
     def __getattribute__(self, name: str) -> Any:
-        try:
-            return object.__getattribute__(self, name)
-        except AttributeError:
-            shape = object.__getattribute__(self, "_shape")
-            network = object.__getattribute__(self, "_network")
+        shape = object.__getattribute__(self, "_shape")
+        network = object.__getattribute__(self, "_network")
 
-            def add_fn(fn: Callable[[RingTensor], Tensor]) -> "Input":
-                output_shape = fn(RingTensor.rand(shape)).shape
-                network.modules.append(fn)
-                object.__setattr__(self, "_shape", output_shape)
-                return self
+        def add_fn(fn: Callable[[RingTensor], Tensor]) -> "Input":
+            output_shape = fn(RingTensor.rand(shape)).shape
+            network.modules.append(fn)
+            object.__setattr__(self, "_shape", output_shape)
+            return self
 
-            match name:
-                case "ff":
-                    return lambda output_size: add_fn(RingFF(shape[-1], output_size))
-                case "conv":
-                    return lambda output_size, window_size=3, padding=1, stride=1: add_fn(RingConv(shape[-1], output_size, window_size, padding, stride))
-                case "apply":
-                    return lambda fn: add_fn(fn)
-                case "weights" | "nparams":
-                    return getattr(network, name)
-                case _:
-                    if hasattr(Tensor, name):
-                        # add tensor operation to the network
-                        return lambda *args, **kwargs: add_fn(Partial(getattr(Tensor, name), *args, **kwargs))
-                    raise AttributeError(f"Input has no attribute {name}")
+        match name:
+            case "ff":
+                return lambda output_size: add_fn(RingFF(shape[-1], output_size))
+            case "conv":
+                return lambda output_size, window_size=3, padding=1, stride=1: add_fn(RingConv(shape[-1], output_size, window_size, padding, stride))
+            case "apply":
+                return lambda fn: add_fn(fn)
+            case "weights" | "nparams" | "save" | "load":
+                return getattr(network, name)
+            case _:
+                if hasattr(Tensor, name):
+                    # add tensor operation to the network
+                    return lambda *args, **kwargs: add_fn(Partial(getattr(Tensor, name), *args, **kwargs))
+                raise AttributeError(f"Input has no attribute {name}")
 
     def __repr__(self):
         '''representation including the input and output shapes'''
