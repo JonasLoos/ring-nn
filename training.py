@@ -1,13 +1,19 @@
 from datetime import datetime
 import pickle
-from tensor import no_grad
+from typing import Any
+
+from tensor import no_grad, Tensor
+from nn import Model
+from optimizer import Optimizer
+from data import Dataloader
+from typing import Callable
 
 
-def print_frac(a, b):
+def print_frac(a: int, b: int) -> str:
     return f'{a:{len(str(b))}}/{b}'
 
 
-def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=True, log_to_terminal=True, log_to_file=False, log_to_wandb=False, wandb_project=''):
+def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor], train_dl: Dataloader, test_dl: Dataloader, epochs: int, safe_on_exception: bool = True, log_to_terminal: bool = True, log_to_file: bool = False, log_to_wandb: bool = False, wandb_project: str = ''):
     if log_to_wandb:
         import wandb
         wandb.init(project=wandb_project)
@@ -41,14 +47,14 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
                 total_training_step += 1
                 pred = nn(x)
                 loss = loss_fn(pred, y)
-                accuracy = (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).float().mean()
+                accuracy = (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
                 loss.backward()
                 opt_logs = optimizer()
                 if log_to_terminal:
                     print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg grad change: {opt_logs['abs_update_final']:+.2e} (float: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
                 if log_to_file:
                     train_logs.append({
-                        'weights': [w.data.copy() for w in nn.weights],
+                        'weights': [w.data.clone() for w in nn.weights],
                         'loss': loss.data.item(),
                         'accuracy': accuracy,
                         'abs_update_float': opt_logs['abs_update_float'],
@@ -82,8 +88,8 @@ def train(nn, optimizer, loss_fn, train_dl, test_dl, epochs, safe_on_exception=T
             with no_grad():  # Disable gradient computation during testing
                 for test_i, (x, y) in enumerate(test_dl):
                     pred = nn(x)
-                    test_loss = test_loss + loss_fn(pred, y).data.item()
-                    test_accuracy += (pred.data.argmax(axis=-1) == y.abs().data.argmax(axis=-1)).float().mean()
+                    test_loss += loss_fn(pred, y).data.item()
+                    test_accuracy += (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
 
                     # Force garbage collection every few batches to prevent memory accumulation
                     del pred

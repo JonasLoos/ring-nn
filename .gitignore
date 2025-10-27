@@ -1,10 +1,11 @@
-__pycache__
+__pycache__/
+.vscode/
+wandb/
+
+cifar-10-batches-py/
+logs/
 
 *.npz
 *.pkl
 *.tar.gz
 *.csv.gz
-
-cifar-10-batches-py/
-logs/
-wandb/

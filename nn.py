@@ -1,6 +1,8 @@
-from tensor import Tensor, RingTensor
+from abc import ABC, abstractmethod
 import pickle
-from typing import Callable
+from typing import Callable, Any
+
+from tensor import Tensor, RingTensor
 
 
 class Partial:
@@ -18,8 +20,25 @@ class Partial:
         return f"{self.fn.__name__}({args_repr})"
 
 
-class Module:
-    _weights: list[Tensor] | None = None
+class Model(ABC):
+    weights: list[Tensor]
+    nparams: int
+
+    @abstractmethod
+    def __call__(self, x: Tensor) -> Tensor:
+        raise NotImplementedError
+
+    @abstractmethod
+    def save(self, path: str):
+        raise NotImplementedError
+
+    @abstractmethod
+    def load(self, path: str):
+        raise NotImplementedError
+
+
+class Module(Model):
+    _weights: list[Tensor] = []
 
     @property
     def weights(self) -> list[Tensor]:
@@ -55,7 +74,7 @@ class RingFF(Module):
         self._weights = [RingTensor.rand((input_size, output_size), requires_grad=True)]
         # We don't need any bias, because it would be mathematically equivalent to just shifting the weights of the following layer by the corresponding amount.
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: RingTensor) -> RingTensor:
         return (x.unsqueeze(-1) - self._weights[0]).cos().mean(axis=-2)
         # return (x.unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=-2)
 
@@ -70,7 +89,7 @@ class RingConv(Module):
         self.stride = stride
         self._weights = [RingTensor.rand((input_size, window_size, window_size, output_size), requires_grad=True)]
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: RingTensor) -> RingTensor:
         return (x.sliding_window_2d(self.window_size, self.padding, self.stride).unsqueeze(-1) - self._weights[0]).cos().mean(axis=(-4,-3,-2))
         # return (x.sliding_window_2d(self.window_size, self.padding, self.stride).unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
 
@@ -79,7 +98,7 @@ class RingConv(Module):
 
 
 class Sequential(Module):
-    def __init__(self, modules: list[Module | Callable[[Tensor],Tensor]]):
+    def __init__(self, modules: list[Module | Callable[[Any],Tensor]]):
         self.modules = modules
 
     @property
@@ -105,7 +124,14 @@ class Sequential(Module):
         return "\n-> ".join(steps)
 
 
-class Input:
+class Input(Model):
+    ff: Callable[[int], "Input"]
+    conv: Callable[[int, int, int, int], "Input"]
+    apply: Callable[[Callable[[RingTensor], Tensor]], "Input"]
+    weights: Callable[[], list[Tensor]]
+    nparams: Callable[[], int]
+    # also Tensor methods are available
+
     def __init__(self, shape: tuple[int, ...]):
         self._input_shape = shape
         self._shape = shape
@@ -114,27 +140,43 @@ class Input:
     def __call__(self, x: Tensor) -> Tensor:
         return object.__getattribute__(self, "_network")(x)
 
-    def __getattribute__(self, name: str) -> "Input":
-        shape = object.__getattribute__(self, "_shape")
-        network = object.__getattribute__(self, "_network")
-        def add_fn(fn: Callable) -> "Input":
-            output_shape = fn(RingTensor.rand(shape)).shape
-            network.modules.append(fn)
-            object.__setattr__(self, "_shape", output_shape)
-            return self
-        match name:
-            case "ff": return lambda output_size: add_fn(RingFF(shape[-1], output_size))
-            case "conv": return lambda output_size, window_size=3, padding=1, stride=1: add_fn(RingConv(shape[-1], output_size, window_size, padding, stride))
-            case "apply": return lambda fn: add_fn(fn)
-            case "weights" | "nparams" | "save" | "load": return getattr(network, name)
-            case _:
-                if hasattr(Tensor, name):
-                    # add tensor operation to the network
-                    return lambda *args, **kwargs: add_fn(Partial(getattr(Tensor, name), *args, **kwargs))
-                else:
+    def save(self, path: str):
+        object.__getattribute__(self, "_network").save(path)
+
+    def load(self, path: str):
+        object.__getattribute__(self, "_network").load(path)
+        return self
+
+    def __getattribute__(self, name: str) -> Any:
+        try:
+            return object.__getattribute__(self, name)
+        except AttributeError:
+            shape = object.__getattribute__(self, "_shape")
+            network = object.__getattribute__(self, "_network")
+
+            def add_fn(fn: Callable[[RingTensor], Tensor]) -> "Input":
+                output_shape = fn(RingTensor.rand(shape)).shape
+                network.modules.append(fn)
+                object.__setattr__(self, "_shape", output_shape)
+                return self
+
+            match name:
+                case "ff":
+                    return lambda output_size: add_fn(RingFF(shape[-1], output_size))
+                case "conv":
+                    return lambda output_size, window_size=3, padding=1, stride=1: add_fn(RingConv(shape[-1], output_size, window_size, padding, stride))
+                case "apply":
+                    return lambda fn: add_fn(fn)
+                case "weights" | "nparams":
+                    return getattr(network, name)
+                case _:
+                    if hasattr(Tensor, name):
+                        # add tensor operation to the network
+                        return lambda *args, **kwargs: add_fn(Partial(getattr(Tensor, name), *args, **kwargs))
                     raise AttributeError(f"Input has no attribute {name}")
 
     def __repr__(self):
+        '''representation including the input and output shapes'''
         input_shape = object.__getattribute__(self, "_input_shape")
         output_shape = object.__getattribute__(self, "_shape")
         network = object.__getattribute__(self, "_network")

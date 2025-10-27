@@ -1,20 +1,31 @@
+from abc import ABC
+
 import torch
-from tensor import RingTensor, device
+
+from tensor import RingTensor
+from nn import Model
+from typing import Any
 
 
 
-class SGD:
-    def __init__(self, nn, lr, lr_decay):
+class Optimizer(ABC):
+    def __init__(self, nn: Model, lr: float, lr_decay: float):
         self.nn = nn
         self.lr = lr
         self.lr_decay = lr_decay
-
+    
     def __call__(self):
+        raise NotImplementedError
+
+
+class SGD(Optimizer):
+    def __call__(self) -> dict[str, Any]:
         abs_update_float = 0
         abs_update_final = 0
         updates_float = []
         updates_final = []
         for w in self.nn.weights:
+            if w._grad is None: continue
             update = w._grad * self.lr
             update_final = (update.clamp(-1, 1) * -RingTensor.min_value).to(RingTensor.dtype)
             w.data -= update_final
@@ -32,11 +43,9 @@ class SGD:
         }
 
 
-class Adam:
-    def __init__(self, nn, lr, lr_decay):
-        self.nn = nn
-        self.lr = lr
-        self.lr_decay = lr_decay
+class Adam(Optimizer):
+    def __init__(self, nn: Model, lr: float, lr_decay: float):
+        super().__init__(nn, lr, lr_decay)
         self.beta1 = 0.9
         self.beta2 = 0.999
         self.epsilon = 1e-8
@@ -44,15 +53,14 @@ class Adam:
         self.m = [torch.zeros_like(w.data, dtype=torch.float32) for w in self.nn.weights]
         self.v = [torch.zeros_like(w.data, dtype=torch.float32) for w in self.nn.weights]
 
-    def __call__(self):
+    def __call__(self) -> dict[str, Any]:
         self.t += 1
         abs_update_float = 0
         abs_update_final = 0
         for i, w in enumerate(self.nn.weights):
-            if w._grad is None:
-                continue
+            if w._grad is None: continue
 
-            grad = w._grad.to(torch.float32) # Ensure gradient is float32 for calculations
+            grad = w._grad.to(torch.float32)  # Ensure gradient is float32 for calculations
 
             # Update biased first moment estimate
             self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * grad
@@ -80,6 +88,6 @@ class Adam:
         return {
             'abs_update_float': abs_update_float,
             'abs_update_final': abs_update_final,
-            'updates_float': [],  # Adam doesn't store individual updates
+            'updates_float': [],
             'updates_final': []
         }

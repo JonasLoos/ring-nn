@@ -14,8 +14,8 @@ from training import train
 
 # Alternative architecture
 nn = Sequential([
-    RingFF(28, 512),  # Input layer: 28 features -> 512 hidden units
-    RingFF(512, 2),   # Hidden layer: 512 -> 128
+    RingFF(28, 512),
+    RingFF(512, 2),
     lambda x: 1 - x.real().abs()  # Convert to probabilities
 ])
 

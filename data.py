@@ -8,7 +8,7 @@ from tensor import RingTensor, RealTensor
 
 
 class Dataloader:
-    def __init__(self, x, y, batch_size=1, shuffle=True):
+    def __init__(self, x, y, batch_size: int = 1, shuffle: bool = True):
         self.x = x
         self.y = y
         self.batch_size = batch_size
@@ -38,7 +38,7 @@ class Dataloader:
         return math.ceil(len(self.x) / self.batch_size)
 
 
-def load_mnist(batch_size=1):
+def load_mnist(batch_size: int = 1):
     mnist_url = 'https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz'
     mnist_path = 'mnist.npz'
 
@@ -67,8 +67,7 @@ def load_mnist(batch_size=1):
     )
 
 
-
-def load_cifar10(batch_size=1):
+def load_cifar10(batch_size: int = 1):
     cifar10_url = 'https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
     cifar10_path = 'cifar-10-python.tar.gz'
     cifar10_dir = 'cifar-10-batches-py'
@@ -122,7 +121,7 @@ def load_cifar10(batch_size=1):
     )
 
 
-def load_higgs(batch_size=1, train_size=None, test_size=None):
+def load_higgs(batch_size: int = 1, train_size: int | None = None, test_size: int | None = None):
     """
     Load the Higgs Boson dataset from UCI repository.
 
