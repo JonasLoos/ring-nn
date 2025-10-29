@@ -2,7 +2,7 @@ from datetime import datetime
 import pickle
 from typing import Any
 
-from tensor import no_grad, Tensor
+from tensor import no_grad, Tensor, RingTensor
 from nn import Model
 from optimizer import Optimizer
 from data import Dataloader
@@ -28,6 +28,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
             "nparams": nn.nparams,
             "train_samples": len(train_dl.x),
             "test_samples": len(test_dl.x),
+            "RingTensor.dtype": RingTensor.dtype,
         })
 
     # Print network architecture
