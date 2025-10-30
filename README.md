@@ -42,8 +42,9 @@ In this implementation a `RingTensor` represents a real number between -1 and 1,
 
 ### Open Questions
 
-* How to aggregate the dimensions of a ring neuron? Using mean seems like a bad option if the different values are near uniformly distributed (which is expected), because then the mean is not really well defined. E.g. when aggregating [0,1], all points on the ring are equally close to the datapoints, i.e. potential "means". Aggregating probablility distributions and drawing from this might work, but seems very complicated and slow.
-* Which non-linearity should be used and where? Using cos after the difference seems fine, but 
+* How to aggregate the dimensions of a ring neuron? Using mean (as currently done) seems like a bad option if the different values are near uniformly distributed (which is expected), because then the mean is not really well defined. E.g. when aggregating [0,1], all points on the ring are equally close to the datapoints, i.e. potential "means". Aggregating probablility distributions and drawing from this might work, but seems very complicated and slow. What else could work?
+* How valid is the interpretation as angles for a point on the hypersphere? We don't do any real angle arithmetic, so it's a hypertorus, which might have completely different properties.
+* Which non-linearity should be used and where? Using cos after the difference seems fine at first glance, but there might be other options.
 
 
 ## Current State
