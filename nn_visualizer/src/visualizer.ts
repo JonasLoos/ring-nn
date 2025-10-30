@@ -14,64 +14,7 @@ export class Visualizer {
    * Format layer name for display - handles anonymous functions and long names
    */
   static formatLayerName(name: string): string {
-    // If it's a short, simple name, return as-is
-    if (name.length < 60 && !name.includes('=>') && !name.includes('function')) {
-      return name;
-    }
-    
-    // Handle anonymous functions
-    if (name.includes('=>') || name.includes('function')) {
-      // Try to extract meaningful operation patterns
-      const str = name.replace(/\s+/g, ' ').trim();
-      
-      // Pattern: lambda x: 0.5 + x.cos().real()/2 or similar (sigmoid activation)
-      if ((str.includes('cos') || str.includes('cos()')) && 
-          (str.includes('real') || str.includes('real()')) && 
-          (str.includes('0.5') || str.includes('.5'))) {
-        return 'Apply: sigmoid(cos(x))';
-      }
-      
-      // Pattern: x.cos() or similar
-      if (str.match(/x\.cos\(\)/)) {
-        return 'Apply: cos(x)';
-      }
-      
-      // Pattern: x.sin() or similar
-      if (str.match(/x\.sin\(\)/)) {
-        return 'Apply: sin(x)';
-      }
-      
-      // Pattern: x.real() or similar
-      if (str.match(/x\.real\(\)/)) {
-        return 'Apply: real(x)';
-      }
-      
-      // Generic anonymous function - try to extract meaningful parts
-      // Look for return statement
-      const returnMatch = str.match(/return\s+([^;]+)/);
-      if (returnMatch) {
-        let operation = returnMatch[1].trim();
-        // Remove common variable names and simplify
-        operation = operation.replace(/div\.add\(/g, 'add(')
-                             .replace(/cosReal\.div\(/g, 'div(')
-                             .replace(/cos\.real\(\)/g, 'real(cos(x))')
-                             .replace(/x\.cos\(\)/g, 'cos(x)');
-        
-        if (operation.length < 50) {
-          return `Apply: ${operation}`;
-        }
-      }
-      
-      // Fallback: show abbreviated version
-      return 'Apply: custom function';
-    }
-    
-    // For very long names, truncate
-    if (name.length > 80) {
-      return name.substring(0, 77) + '...';
-    }
-    
-    return name;
+    return name.split('\n').map(line => line.trim()).filter(line => line.length > 0 && !line.startsWith('//')).join(' ');
   }
 
   /**
@@ -264,6 +207,7 @@ export class Visualizer {
 
   /**
    * Draw bar chart for 1D/2D outputs (e.g., classification probabilities)
+   * Enhanced with better visuals, hover tooltips, statistics, and zero line
    */
   static drawBarChart(tensor: AnyTensor, container: HTMLElement, title?: string): void {
     const floatData = tensor.asFloat();
@@ -278,27 +222,124 @@ export class Visualizer {
       throw new Error(`Cannot draw bar chart for shape: [${shape.join(', ')}]`);
     }
     
-    const maxVal = Math.max(...values.map(Math.abs));
-    const maxIdx = values.indexOf(Math.max(...values));
+    // Calculate statistics
+    const minVal = Math.min(...values);
+    const maxVal = Math.max(...values);
+    const meanVal = values.reduce((a, b) => a + b, 0) / values.length;
+    const variance = values.reduce((acc, val) => acc + Math.pow(val - meanVal, 2), 0) / values.length;
+    const stdVal = Math.sqrt(variance);
+    const maxAbsVal = Math.max(...values.map(Math.abs));
+    const maxIdx = values.indexOf(maxVal);
+    
+    // Check if we have negative values
+    const hasNegative = minVal < 0;
     
     const wrapper = document.createElement('div');
-    wrapper.style.padding = '10px';
-    wrapper.style.border = '1px solid #ccc';
-    wrapper.style.borderRadius = '4px';
+    wrapper.style.padding = '15px';
+    wrapper.style.border = '1px solid #ddd';
+    wrapper.style.borderRadius = '8px';
+    wrapper.style.backgroundColor = '#fafafa';
+    wrapper.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
     
     if (title) {
       const header = document.createElement('div');
-      header.style.marginBottom = '10px';
+      header.style.marginBottom = '15px';
       header.style.fontWeight = 'bold';
+      header.style.fontSize = '16px';
+      header.style.color = '#333';
       header.textContent = title;
       wrapper.appendChild(header);
     }
     
+    // Statistics panel
+    const statsPanel = document.createElement('div');
+    statsPanel.style.display = 'grid';
+    statsPanel.style.gridTemplateColumns = 'repeat(4, 1fr)';
+    statsPanel.style.gap = '10px';
+    statsPanel.style.marginBottom = '15px';
+    statsPanel.style.padding = '10px';
+    statsPanel.style.backgroundColor = '#f0f0f0';
+    statsPanel.style.borderRadius = '4px';
+    statsPanel.style.fontSize = '12px';
+    
+    const statItem = (label: string, value: number, color: string = '#666') => {
+      const div = document.createElement('div');
+      div.style.textAlign = 'center';
+      const labelEl = document.createElement('div');
+      labelEl.style.color = '#888';
+      labelEl.style.fontSize = '10px';
+      labelEl.textContent = label;
+      const valueEl = document.createElement('div');
+      valueEl.style.color = color;
+      valueEl.style.fontWeight = 'bold';
+      valueEl.style.fontFamily = 'monospace';
+      valueEl.textContent = value.toFixed(3);
+      div.appendChild(labelEl);
+      div.appendChild(valueEl);
+      return div;
+    };
+    
+    statsPanel.appendChild(statItem('Min', minVal, '#f44336'));
+    statsPanel.appendChild(statItem('Max', maxVal, '#4CAF50'));
+    statsPanel.appendChild(statItem('Mean', meanVal, '#2196F3'));
+    statsPanel.appendChild(statItem('Std', stdVal, '#FF9800'));
+    wrapper.appendChild(statsPanel);
+    
+    // Chart container with zero line support
+    const chartContainer = document.createElement('div');
+    chartContainer.style.position = 'relative';
+    chartContainer.style.paddingTop = hasNegative ? '20px' : '0';
+    chartContainer.style.paddingBottom = '30px';
+    
+    // Zero line indicator
+    if (hasNegative) {
+      const zeroLine = document.createElement('div');
+      zeroLine.style.position = 'absolute';
+      zeroLine.style.left = '0';
+      zeroLine.style.right = '0';
+      zeroLine.style.height = '2px';
+      zeroLine.style.backgroundColor = '#999';
+      zeroLine.style.opacity = '0.5';
+      zeroLine.style.zIndex = '1';
+      const zeroLinePos = maxAbsVal > 0 ? (maxAbsVal / (maxAbsVal + Math.abs(minVal))) * 100 : 50;
+      zeroLine.style.top = `${zeroLinePos}%`;
+      chartContainer.appendChild(zeroLine);
+      
+      const zeroLabel = document.createElement('div');
+      zeroLabel.style.position = 'absolute';
+      zeroLabel.style.right = '5px';
+      zeroLabel.style.top = `${zeroLinePos}%`;
+      zeroLabel.style.transform = 'translateY(-50%)';
+      zeroLabel.style.fontSize = '10px';
+      zeroLabel.style.color = '#999';
+      zeroLabel.textContent = '0';
+      chartContainer.appendChild(zeroLabel);
+    }
+    
     const barsContainer = document.createElement('div');
     barsContainer.style.display = 'flex';
-    barsContainer.style.alignItems = 'flex-end';
-    barsContainer.style.gap = '5px';
-    barsContainer.style.height = '200px';
+    barsContainer.style.alignItems = hasNegative ? 'center' : 'flex-end';
+    barsContainer.style.gap = '4px';
+    barsContainer.style.height = hasNegative ? '250px' : '220px';
+    barsContainer.style.position = 'relative';
+    barsContainer.style.zIndex = '2';
+    
+    // Tooltip element (fixed positioning for viewport-relative placement)
+    const tooltip = document.createElement('div');
+    tooltip.style.position = 'fixed';
+    tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+    tooltip.style.color = 'white';
+    tooltip.style.padding = '6px 10px';
+    tooltip.style.borderRadius = '4px';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.fontFamily = 'monospace';
+    tooltip.style.pointerEvents = 'none';
+    tooltip.style.zIndex = '10000';
+    tooltip.style.display = 'none';
+    tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+    tooltip.style.whiteSpace = 'pre-line';
+    // Append to wrapper so it gets cleaned up with the container
+    wrapper.appendChild(tooltip);
     
     values.forEach((val, idx) => {
       const barWrapper = document.createElement('div');
@@ -306,46 +347,155 @@ export class Visualizer {
       barWrapper.style.flexDirection = 'column';
       barWrapper.style.alignItems = 'center';
       barWrapper.style.flex = '1';
+      barWrapper.style.position = 'relative';
+      barWrapper.style.justifyContent = hasNegative ? (val >= 0 ? 'flex-end' : 'flex-start') : 'flex-end';
+      
+      // Calculate bar height and position
+      let heightPercent: number;
+      let barTop: string = 'auto';
+      
+      if (hasNegative) {
+        const totalRange = maxAbsVal + Math.abs(minVal);
+        heightPercent = (Math.abs(val) / totalRange) * 100;
+        // Position relative to zero line
+        if (val >= 0) {
+          barTop = `${(Math.abs(minVal) / totalRange) * 100}%`;
+        } else {
+          barTop = `${(maxAbsVal / totalRange) * 100}%`;
+        }
+      } else {
+        heightPercent = maxAbsVal > 0 ? (Math.abs(val) / maxAbsVal) * 100 : 0;
+      }
       
       const bar = document.createElement('div');
-      const height = maxVal > 0 ? (Math.abs(val) / maxVal) * 100 : 0;
       bar.style.width = '100%';
-      bar.style.height = `${height}%`;
-      bar.style.backgroundColor = idx === maxIdx ? '#4CAF50' : (val >= 0 ? '#2196F3' : '#f44336');
-      bar.style.minHeight = '2px';
-      bar.style.borderRadius = '2px 2px 0 0';
-      bar.style.transition = 'background-color 0.2s';
+      bar.style.height = `${heightPercent}%`;
+      bar.style.position = hasNegative ? 'absolute' : 'relative';
+      if (hasNegative) {
+        bar.style.bottom = val >= 0 ? '50%' : 'auto';
+        bar.style.top = val < 0 ? '50%' : 'auto';
+      }
       
+      // Enhanced color scheme with gradients
+      let bgColor: string;
+      if (idx === maxIdx) {
+        bgColor = '#4CAF50'; // Green for maximum
+      } else if (val >= 0) {
+        // Positive values: blue gradient
+        const intensity = val / maxAbsVal;
+        const r = Math.round(33 + (33 - 33) * (1 - intensity));
+        const g = Math.round(150 + (150 - 150) * (1 - intensity));
+        const b = Math.round(243 + (243 - 243) * (1 - intensity));
+        bgColor = `rgb(${r}, ${g}, ${b})`;
+      } else {
+        // Negative values: red gradient
+        const intensity = Math.abs(val) / maxAbsVal;
+        const r = Math.round(244 + (200 - 244) * (1 - intensity));
+        const g = Math.round(67 + (67 - 67) * (1 - intensity));
+        const b = Math.round(54 + (54 - 54) * (1 - intensity));
+        bgColor = `rgb(${r}, ${g}, ${b})`;
+      }
+      
+      bar.style.backgroundColor = bgColor;
+      bar.style.minHeight = '2px';
+      bar.style.borderRadius = hasNegative ? '2px' : '2px 2px 0 0';
+      bar.style.transition = 'all 0.2s ease';
+      bar.style.cursor = 'pointer';
+      bar.style.boxShadow = idx === maxIdx ? '0 2px 4px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.1)';
+      
+      // Value label on top of bar
+      const valueLabel = document.createElement('div');
+      valueLabel.style.position = hasNegative ? 'absolute' : 'relative';
+      valueLabel.style.fontSize = '9px';
+      valueLabel.style.fontWeight = 'bold';
+      valueLabel.style.color = idx === maxIdx ? '#2E7D32' : '#555';
+      valueLabel.style.fontFamily = 'monospace';
+      valueLabel.style.textAlign = 'center';
+      valueLabel.style.marginBottom = '2px';
+      valueLabel.style.whiteSpace = 'nowrap';
+      valueLabel.textContent = val.toFixed(2);
+      if (hasNegative) {
+        valueLabel.style.top = val >= 0 ? '-15px' : 'calc(100% + 2px)';
+        valueLabel.style.width = '100%';
+      }
+      
+      // Hover effects
+      bar.addEventListener('mouseenter', (e) => {
+        bar.style.transform = 'scaleY(1.05)';
+        bar.style.opacity = '0.9';
+        tooltip.style.display = 'block';
+        tooltip.textContent = `Index: ${idx}\nValue: ${val.toFixed(6)}\nPercent: ${((val / maxAbsVal) * 100).toFixed(2)}%`;
+        const rect = bar.getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        // Center tooltip above bar, ensuring it stays within viewport
+        let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
+        let top = rect.top - tooltipRect.height - 10;
+        // Keep tooltip within viewport bounds
+        if (left < 10) left = 10;
+        if (left + tooltipRect.width > window.innerWidth - 10) {
+          left = window.innerWidth - tooltipRect.width - 10;
+        }
+        if (top < 10) {
+          top = rect.bottom + 10; // Show below if no room above
+        }
+        tooltip.style.left = `${left}px`;
+        tooltip.style.top = `${top}px`;
+      });
+      
+      bar.addEventListener('mouseleave', () => {
+        bar.style.transform = 'scaleY(1)';
+        bar.style.opacity = '1';
+        tooltip.style.display = 'none';
+      });
+      
+      // Index label
       const label = document.createElement('div');
       label.style.fontSize = '10px';
       label.style.marginTop = '5px';
       label.style.color = '#666';
+      label.style.fontWeight = idx === maxIdx ? 'bold' : 'normal';
       label.textContent = idx.toString();
       
+      barWrapper.appendChild(valueLabel);
       barWrapper.appendChild(bar);
       barWrapper.appendChild(label);
       barsContainer.appendChild(barWrapper);
     });
     
-    wrapper.appendChild(barsContainer);
+    chartContainer.appendChild(barsContainer);
+    wrapper.appendChild(chartContainer);
     
-    // Add value labels
-    const valuesLabel = document.createElement('div');
-    valuesLabel.style.marginTop = '10px';
-    valuesLabel.style.fontSize = '12px';
-    valuesLabel.style.fontFamily = 'monospace';
-    valuesLabel.style.color = '#666';
-    valuesLabel.textContent = `Values: [${values.map(v => v.toFixed(3)).join(', ')}]`;
-    wrapper.appendChild(valuesLabel);
+    // Summary info
+    const summaryDiv = document.createElement('div');
+    summaryDiv.style.marginTop = '15px';
+    summaryDiv.style.padding = '10px';
+    summaryDiv.style.backgroundColor = '#f9f9f9';
+    summaryDiv.style.borderRadius = '4px';
+    summaryDiv.style.fontSize = '12px';
     
     const predictionLabel = document.createElement('div');
-    predictionLabel.style.marginTop = '5px';
     predictionLabel.style.fontWeight = 'bold';
     predictionLabel.style.color = '#4CAF50';
+    predictionLabel.style.marginBottom = '5px';
     const maxValue = values[maxIdx];
-    predictionLabel.textContent = `Prediction: ${maxIdx} (value: ${maxValue.toFixed(3)})`;
-    wrapper.appendChild(predictionLabel);
+    predictionLabel.textContent = `Prediction: Index ${maxIdx} (value: ${maxValue.toFixed(6)})`;
+    summaryDiv.appendChild(predictionLabel);
     
+    // Compact values display (truncated if too long)
+    const valuesLabel = document.createElement('div');
+    valuesLabel.style.fontFamily = 'monospace';
+    valuesLabel.style.color = '#666';
+    valuesLabel.style.fontSize = '11px';
+    if (values.length <= 20) {
+      valuesLabel.textContent = `Values: [${values.map(v => v.toFixed(3)).join(', ')}]`;
+    } else {
+      const firstFew = values.slice(0, 5).map(v => v.toFixed(3)).join(', ');
+      const lastFew = values.slice(-5).map(v => v.toFixed(3)).join(', ');
+      valuesLabel.textContent = `Values: [${firstFew}, ..., ${lastFew}] (${values.length} total)`;
+    }
+    summaryDiv.appendChild(valuesLabel);
+    
+    wrapper.appendChild(summaryDiv);
     container.appendChild(wrapper);
   }
 
