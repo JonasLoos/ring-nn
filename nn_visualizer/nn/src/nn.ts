@@ -51,14 +51,15 @@ export class RingConv extends Module {
     this._weights = [RingTensor.rand([inputChannels, windowSize, windowSize, outputChannels])];
   }
   forward(x: RingTensor): RingTensor {
-    // (x.sliding_window_2d(ws,pad,stride).unsqueeze(-1) - W).cos2().mean(axis=(-4,-3,-2))
+    // (x.sliding_window_2d(ws,pad,stride).unsqueeze(-1) - W).cos().mean(axis=(-4,-3,-2))
     const sw = x.sliding_window_2d(this.window, this.padding, this.stride) as RingTensor;
     const expanded = sw.unsqueeze(-1) as RingTensor;
     const diff = expanded.sub(this._weights[0] as RingTensor) as RingTensor;
-    const act = diff.cos2();
+    const act = diff.cos();
     // mean over last 3 window dims: (-4,-3,-2) - use array to mean over multiple axes at once
     // After unsqueeze(-1), shape is (B, H', W', C, ws, ws, 1)
-    // So -4,-3,-2 refer to the last 3 dimensions before the unsqueezed one
+    // After subtraction with weights (C, ws, ws, O), shape is (B, H', W', C, ws, ws, O)
+    // So -4,-3,-2 refer to dimensions C, ws, ws (indices 3, 4, 5 in rank-7 tensor)
     const rank = act.shape.length;
     const axes = [rank - 4, rank - 3, rank - 2]; // Map negative indices to positive
     return act.mean(axes, false) as RingTensor;
