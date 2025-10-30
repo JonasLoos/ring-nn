@@ -9,12 +9,17 @@ pip install -r requirements.txt
 # training
 python ring_nn_mnist.py
 python ring_nn_cifar10.py
+python ring_nn_higgs.py
 
 # test
 python test_ring_nn.py
 
-# visualize
+# visualize nn layers
 python app.py
+
+# visualize nn activations
+cd nn_visualizer  # build the nn library (.ts) the first time you run it
+python -m http.server 8000
 ```
 
 
