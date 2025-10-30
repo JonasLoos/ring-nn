@@ -1,6 +1,7 @@
 from datetime import datetime
 import pickle
 from typing import Any
+from pathlib import Path
 
 from tensor import no_grad, Tensor, RingTensor
 from nn import Model
@@ -112,10 +113,12 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
     except KeyboardInterrupt:
         pass
     finally:
+        log_dir = Path('logs')
+        log_dir.mkdir(exist_ok=True)
         if safe_on_exception:
             print("\nSaving model...")
             now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            nn.save(f'logs/{now}_ring_nn_mnist.pkl')
+            nn.save(str(log_dir / f'{now}_ring_nn.pkl'))
         if log_to_file:
-            with open(f'logs/{now}_train_logs_mnist.pkl', 'wb') as f:
+            with open(str(log_dir / f'{now}_train_logs.pkl'), 'wb') as f:
                 pickle.dump(train_logs, f)

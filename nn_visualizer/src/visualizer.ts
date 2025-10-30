@@ -115,27 +115,16 @@ export class Visualizer {
     const shape = tensor.shape;
     const isRingTensor = tensor.dtype === 'int16';
     
-    // Handle different tensor shapes
     let H: number, W: number, C: number;
-    let dataOffset = 0;
     
     if (shape.length === 4 && shape[0] === 1) {
-      // NHWC format: [1, H, W, C]
       [H, W, C] = [shape[1], shape[2], shape[3]];
-      dataOffset = 0;
     } else if (shape.length === 2 && shape[0] === 1) {
-      // Flattened 2D: [1, N] - reshape to square if possible
-      const N = shape[1];
-      const side = Math.ceil(Math.sqrt(N));
+      const side = Math.ceil(Math.sqrt(shape[1]));
       H = W = side;
       C = 1;
-      dataOffset = 0;
     } else if (shape.length === 3 && shape[0] === 1) {
-      // [1, H, W]
-      H = shape[1];
-      W = shape[2];
-      C = 1;
-      dataOffset = 0;
+      [H, W, C] = [shape[1], shape[2], 1];
     } else {
       throw new Error(`Unsupported tensor shape for visualization: ${shape.join(',')}`);
     }
@@ -146,42 +135,21 @@ export class Visualizer {
     const ctx = canvas.getContext('2d')!;
     const imageData = ctx.createImageData(canvas.width, canvas.height);
     
-    // Normalize values to [0, 1] for display
-    const values: number[] = [];
-    for (let i = 0; i < floatData.length; i++) {
-      values.push(floatData[i]);
-    }
-    
-    const minVal = Math.min(...values);
-    const maxVal = Math.max(...values);
+    const minVal = Math.min(...floatData);
+    const maxVal = Math.max(...floatData);
     const range = maxVal - minVal || 1;
     
-    // Extract channel or compute mean
-    let pixelValues: number[] = [];
-    if (C === 1) {
-      // Single channel
-      for (let h = 0; h < H; h++) {
-        for (let w = 0; w < W; w++) {
-          const idx = (h * W + w);
-          pixelValues.push(floatData[dataOffset + idx]);
-        }
-      }
-    } else if (channel !== undefined) {
-      // Specific channel
-      for (let h = 0; h < H; h++) {
-        for (let w = 0; w < W; w++) {
-          const idx = (h * W + w) * C + channel;
-          pixelValues.push(floatData[dataOffset + idx]);
-        }
-      }
-    } else {
-      // Mean across channels
-      for (let h = 0; h < H; h++) {
-        for (let w = 0; w < W; w++) {
+    const pixelValues: number[] = [];
+    for (let h = 0; h < H; h++) {
+      for (let w = 0; w < W; w++) {
+        if (C === 1) {
+          pixelValues.push(floatData[h * W + w]);
+        } else if (channel !== undefined) {
+          pixelValues.push(floatData[(h * W + w) * C + channel]);
+        } else {
           let sum = 0;
           for (let c = 0; c < C; c++) {
-            const idx = (h * W + w) * C + c;
-            sum += floatData[dataOffset + idx];
+            sum += floatData[(h * W + w) * C + c];
           }
           pixelValues.push(sum / C);
         }
@@ -301,16 +269,10 @@ export class Visualizer {
     const floatData = tensor.asFloat();
     const shape = tensor.shape;
     
-    // Extract values
     let values: number[];
-    if (shape.length === 2 && shape[0] === 1) {
-      // [1, N]
-      values = Array.from(floatData);
-    } else if (shape.length === 1) {
-      // [N]
+    if (shape.length === 2 && shape[0] === 1 || shape.length === 1) {
       values = Array.from(floatData);
     } else if (shape.length === 0) {
-      // Scalar
       values = [floatData[0]];
     } else {
       throw new Error(`Cannot draw bar chart for shape: [${shape.join(', ')}]`);
@@ -391,17 +353,11 @@ export class Visualizer {
    * Run forward pass and collect activations
    */
   runForward(input: RingTensor, onActivation?: (activation: LayerActivation) => void): AnyTensor {
-    const activations: LayerActivation[] = [];
-    
-    const output = this.model.forward(input, (layerIdx: number, name: string, output: AnyTensor) => {
-      const activation: LayerActivation = { layerIdx, name, output };
-      activations.push(activation);
+    return this.model.forward(input, (layerIdx: number, name: string, output: AnyTensor) => {
       if (onActivation) {
-        onActivation(activation);
+        onActivation({ layerIdx, name, output });
       }
     });
-    
-    return output;
   }
 }
 

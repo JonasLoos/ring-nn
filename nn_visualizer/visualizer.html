@@ -30,20 +30,19 @@
       flex-wrap: wrap;
     }
 
-    .left-panel {
-      flex: 0 0 350px;
+    .left-panel, .right-panel {
       background: white;
       border-radius: 8px;
       padding: 20px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
+    .left-panel {
+      flex: 0 0 350px;
+    }
+
     .right-panel {
       flex: 1 1 600px;
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
       max-height: calc(100vh - 100px);
       overflow-y: auto;
     }
@@ -52,7 +51,7 @@
       margin-bottom: 20px;
     }
 
-    .section h2 {
+    .section h2, .section h3 {
       color: #4CAF50;
       margin-bottom: 10px;
       font-size: 18px;
@@ -82,9 +81,10 @@
       border-radius: 4px;
       cursor: pointer;
       font-size: 14px;
+      transition: background 0.2s;
     }
 
-    button:hover {
+    button:hover:not(:disabled) {
       background: #45a049;
     }
 
@@ -107,7 +107,7 @@
       width: 60px;
     }
 
-    #modelSelect, #modelFileInput {
+    select, input[type="file"] {
       width: 100%;
       padding: 8px;
       border: 1px solid #ccc;
@@ -147,20 +147,9 @@
       font-size: 14px;
     }
 
-    .status.info {
-      background: #d1ecf1;
-      color: #0c5460;
-    }
-
-    .status.error {
-      background: #f8d7da;
-      color: #721c24;
-    }
-
-    .status.success {
-      background: #d4edda;
-      color: #155724;
-    }
+    .status.info { background: #d1ecf1; color: #0c5460; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    .status.success { background: #d4edda; color: #155724; }
 
     #outputSection {
       margin-top: 20px;
@@ -225,10 +214,7 @@
   <script type="module">
     import {
       RingTensor,
-      RealTensor,
       Input,
-      RingFF,
-      RingConv,
       loadFromArrayBuffer
     } from './nn/dist/index.js';
 
@@ -239,12 +225,11 @@
 
     // Canvas setup
     const drawCanvas = document.getElementById('drawCanvas');
-    const drawCtx = drawCanvas?.getContext('2d');
+    const drawCtx = drawCanvas.getContext('2d');
     const previewCanvas = document.getElementById('inputPreview');
-    const previewCtx = previewCanvas?.getContext('2d');
+    const previewCtx = previewCanvas.getContext('2d');
 
     if (!drawCtx || !previewCtx) {
-      showStatus('Failed to initialize canvas contexts', 'error');
       throw new Error('Canvas context initialization failed');
     }
 
@@ -253,8 +238,7 @@
     let model = null;
     let visualizer = null;
     let throttleTimer = null;
-    let lastUpdateTime = 0;
-    const THROTTLE_INTERVAL = 100; // Update every 100ms while drawing
+    const THROTTLE_INTERVAL = 100;
 
     // Initialize canvas
     drawCtx.fillStyle = '#000';
@@ -334,7 +318,6 @@
 
     // Clear button
     document.getElementById('clearBtn').addEventListener('click', () => {
-      if (!drawCtx || !drawCanvas) return;
       drawCtx.fillStyle = '#000';
       drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
       updatePreview();
@@ -342,21 +325,11 @@
 
     // Convert canvas to RingTensor input
     function canvasToTensor() {
-      if (!drawCtx || !drawCanvas) {
-        throw new Error('Canvas not initialized');
-      }
-
-      // Get image data from draw canvas
-      const imageData = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
-
       // Scale down to 28x28
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = 28;
       tempCanvas.height = 28;
       const tempCtx = tempCanvas.getContext('2d');
-      if (!tempCtx) {
-        throw new Error('Failed to create temporary canvas context');
-      }
       tempCtx.drawImage(drawCanvas, 0, 0, 28, 28);
 
       const scaledImageData = tempCtx.getImageData(0, 0, 28, 28);
@@ -364,62 +337,27 @@
       // Convert to grayscale and normalize to [-1, 1]
       const grayValues = new Float32Array(28 * 28);
       for (let i = 0; i < scaledImageData.data.length; i += 4) {
-        const r = scaledImageData.data[i];
-        const g = scaledImageData.data[i + 1];
-        const b = scaledImageData.data[i + 2];
-        const gray = (r + g + b) / 3;
-        // Normalize: 0-255 -> -1 to 1
+        const gray = (scaledImageData.data[i] + scaledImageData.data[i + 1] + scaledImageData.data[i + 2]) / 3;
         grayValues[i / 4] = (gray / 255) * 2 - 1;
       }
 
-      // Create RingTensor [1, 28, 28, 1] - NHWC format
-      // For shape [1, 28, 28, 1], data layout is: batch=0, height=h, width=w, channel=0
-      // Index = (0 * 28 * 28 * 1) + (h * 28 * 1) + (w * 1) + 0 = h * 28 + w
-      const reshaped = new Float32Array(1 * 28 * 28 * 1);
-      for (let h = 0; h < 28; h++) {
-        for (let w = 0; w < 28; w++) {
-          reshaped[h * 28 + w] = grayValues[h * 28 + w];
-        }
-      }
-
-      return new RingTensor(reshaped, [1, 28, 28, 1]);
+      return new RingTensor(grayValues, [1, 28, 28, 1]);
     }
 
     // Update preview
     function updatePreview() {
-      if (!drawCtx || !previewCtx || !drawCanvas || !previewCanvas) {
-        return;
-      }
-      
-      const imageData = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = 28;
       tempCanvas.height = 28;
       const tempCtx = tempCanvas.getContext('2d');
-      if (!tempCtx) {
-        return;
-      }
       tempCtx.drawImage(drawCanvas, 0, 0, 28, 28);
       previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
       previewCtx.drawImage(tempCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
 
-      // Run forward pass if model is loaded - use throttling for continuous updates
+      // Throttle forward pass updates
       if (model && visualizer) {
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastUpdateTime;
-        
-        // If enough time has passed since last update, run immediately
-        if (timeSinceLastUpdate >= THROTTLE_INTERVAL) {
-          lastUpdateTime = now;
-          runForwardPass();
-        } else {
-          // Otherwise, schedule an update for the remaining time
-          if (throttleTimer) clearTimeout(throttleTimer);
-          throttleTimer = setTimeout(() => {
-            lastUpdateTime = Date.now();
-            runForwardPass();
-          }, THROTTLE_INTERVAL - timeSinceLastUpdate);
-        }
+        if (throttleTimer) clearTimeout(throttleTimer);
+        throttleTimer = setTimeout(runForwardPass, THROTTLE_INTERVAL);
       }
     }
 
@@ -429,22 +367,12 @@
         showStatus('Loading model...', 'info');
 
         const arrayBuffer = await file.arrayBuffer();
-
-        // Build model architecture (MNIST example)
-        // Input((1, 28, 28, 1)).conv(4, 2, 0, 2).conv(8, 4, 0, 2).flatten(1, 2).ff(10).apply(...)
         const modelArch = new Input([1, 28, 28, 1])
           .conv(4, 2, 0, 2)
           .conv(8, 4, 0, 2)
-          .flatten(1, 2)  // This should produce [1, 288] in Python, but TypeScript might need explicit reshape
+          .flatten(1, 2)
           .ff(10)
-          .apply((x) => {
-            // lambda x: 0.5 + x.cos().real()/2
-            const cos = x.cos();
-            const cosReal = cos.real();
-            const div = cosReal.div(2);
-            // Add scalar 0.5 (broadcasting will handle shape)
-            return div.add(0.5);
-          });
+          .apply((x) => x.cos().real().div(2).add(0.5));
 
         await loadFromArrayBuffer(modelArch, arrayBuffer);
         model = modelArch;
@@ -454,11 +382,8 @@
         document.getElementById('modelInfo').style.display = 'block';
         showStatus('Model loaded successfully!', 'success');
         
-        // Run initial forward pass if canvas has content
         if (throttleTimer) clearTimeout(throttleTimer);
-        throttleTimer = setTimeout(() => {
-          runForwardPass();
-        }, 100);
+        throttleTimer = setTimeout(runForwardPass, THROTTLE_INTERVAL);
       } catch (error) {
         showStatus(`Error loading model: ${error.message}`, 'error');
         console.error(error);
@@ -482,8 +407,7 @@
         select.innerHTML = '<option value="">Select from server...</option>';
         models.forEach(model => {
           const option = document.createElement('option');
-          option.value = model;
-          option.textContent = model;
+          option.value = option.textContent = model;
           select.appendChild(option);
         });
       } catch (error) {
@@ -493,20 +417,19 @@
 
     document.getElementById('modelSelect').addEventListener('change', async (e) => {
       const modelFile = e.target.value;
-      if (modelFile) {
-        try {
-          showStatus('Converting model...', 'info');
-          const response = await fetch(`${API_BASE}/convert-model?model_file=${encodeURIComponent(modelFile)}`);
-          if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'Failed to convert model');
-          }
-          const blob = await response.blob();
-          await loadModelFromFile(blob);
-        } catch (error) {
-          showStatus(`Error: ${error.message}`, 'error');
-          console.error(error);
+      if (!modelFile) return;
+
+      try {
+        showStatus('Converting model...', 'info');
+        const response = await fetch(`${API_BASE}/convert-model?model_file=${encodeURIComponent(modelFile)}`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to convert model');
         }
+        await loadModelFromFile(await response.blob());
+      } catch (error) {
+        showStatus(`Error: ${error.message}`, 'error');
+        console.error(error);
       }
     });
 
@@ -516,21 +439,14 @@
 
       try {
         const input = canvasToTensor();
-
-        // Clear previous visualizations
         const activationsContainer = document.getElementById('activationsContainer');
         const outputContainer = document.getElementById('outputContainer');
-        if (!activationsContainer || !outputContainer) {
-          console.error('Visualization containers not found');
-          return;
-        }
 
         activationsContainer.innerHTML = '';
         outputContainer.innerHTML = '';
         document.getElementById('activationsSection').style.display = 'block';
         document.getElementById('outputSection').style.display = 'block';
 
-        // Run forward pass with activation callback
         const output = visualizer.runForward(input, (activation) => {
           const item = document.createElement('div');
           item.className = 'activation-item';
@@ -538,9 +454,7 @@
           Visualizer.drawActivationsGrid(activation, item);
         });
 
-        // Visualize final output
         Visualizer.drawBarChart(output, outputContainer, 'Final Output (Classification)');
-
       } catch (error) {
         showStatus(`Error running forward pass: ${error.message}`, 'error');
         console.error('Forward pass error:', error);
