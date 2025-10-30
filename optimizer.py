@@ -13,7 +13,7 @@ class Optimizer(ABC):
         self.nn = nn
         self.lr = lr
         self.lr_decay = lr_decay
-    
+
     def __call__(self):
         raise NotImplementedError
 
@@ -74,16 +74,16 @@ class Adam(Optimizer):
 
             # Calculate the update
             update = self.lr * m_hat / (torch.sqrt(v_hat) + self.epsilon)
-            
+
             # Apply update to RingTensor (quantized)
             update_final = (update.clamp(-1, 1) * -RingTensor.min_value).to(RingTensor.dtype)
             w.data -= update_final
-            
+
             w.reset_grad()
 
             abs_update_float += torch.abs(update).mean()
             abs_update_final += torch.abs(update_final.to(torch.float32)).mean() / -RingTensor.min_value
-        
+
         self.lr *= self.lr_decay
         return {
             'abs_update_float': abs_update_float,

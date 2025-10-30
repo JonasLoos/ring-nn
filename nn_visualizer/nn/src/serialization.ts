@@ -36,7 +36,7 @@ export function saveToBlob(module: { weights: AnyTensor[] }): Blob {
   const header: SerializedHeaderV1 = { version: 1, tensors: meta };
   const headerBytes = encodeUTF8(JSON.stringify(header));
   const len = new Uint32Array([headerBytes.byteLength]);
-  const headerArrayBuffer = headerBytes.buffer instanceof ArrayBuffer 
+  const headerArrayBuffer = headerBytes.buffer instanceof ArrayBuffer
     ? headerBytes.buffer.slice(headerBytes.byteOffset, headerBytes.byteOffset + headerBytes.byteLength)
     : new Uint8Array(headerBytes).buffer;
   return new Blob([len.buffer, headerArrayBuffer, payload], { type: 'application/octet-stream' });

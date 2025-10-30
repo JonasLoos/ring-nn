@@ -279,13 +279,13 @@ body { padding-top: 20px; }
         // Helper function to reconstruct individual training logs from combined data
         function reconstructTrainingLogs(combinedData) {
             const { scalar_data, combined_arrays } = combinedData;
-            
+
             // Handle missing or invalid scalar_data
             if (!scalar_data || !Array.isArray(scalar_data)) {
                 console.warn('scalar_data is missing or not an array, returning empty logs');
                 return [];
             }
-            
+
             const numSteps = scalar_data.length;
 
             const reconstructedLogs = [];
@@ -666,7 +666,7 @@ body { padding-top: 20px; }
 
                 // Convert metadata back to arrays
                 const combinedData = convertBinaryToArray(metadata, cache_key);
-                
+
                 // Validate that we have valid combined data
                 if (!combinedData || typeof combinedData !== 'object') {
                     throw new Error('Invalid combined data structure received from server');

@@ -24,9 +24,9 @@ export class Visualizer {
     const c = v * s;
     const x = c * (1 - Math.abs((h * 6) % 2 - 1));
     const m = v - c;
-    
+
     let r = 0, g = 0, b = 0;
-    
+
     if (h * 6 < 1) {
       r = c; g = x; b = 0;
     } else if (h * 6 < 2) {
@@ -40,7 +40,7 @@ export class Visualizer {
     } else {
       r = c; g = 0; b = x;
     }
-    
+
     return [
       Math.round((r + m) * 255),
       Math.round((g + m) * 255),
@@ -57,9 +57,9 @@ export class Visualizer {
     const floatData = tensor.asFloat();
     const shape = tensor.shape;
     const isRingTensor = tensor.dtype === 'int16';
-    
+
     let H: number, W: number, C: number;
-    
+
     if (shape.length === 4 && shape[0] === 1) {
       [H, W, C] = [shape[1], shape[2], shape[3]];
     } else if (shape.length === 2 && shape[0] === 1) {
@@ -71,17 +71,17 @@ export class Visualizer {
     } else {
       throw new Error(`Unsupported tensor shape for visualization: ${shape.join(',')}`);
     }
-    
+
     const canvas = document.createElement('canvas');
     canvas.width = W * scale;
     canvas.height = H * scale;
     const ctx = canvas.getContext('2d')!;
     const imageData = ctx.createImageData(canvas.width, canvas.height);
-    
+
     const minVal = isRingTensor ? -1 : Math.min(...floatData);
     const maxVal = isRingTensor ? 1 : Math.max(...floatData);
     const range = maxVal - minVal || 1;
-    
+
     const pixelValues: number[] = [];
     for (let h = 0; h < H; h++) {
       for (let w = 0; w < W; w++) {
@@ -98,15 +98,15 @@ export class Visualizer {
         }
       }
     }
-    
+
     // Fill ImageData - cyclic color for RingTensor, grayscale for RealTensor
     for (let h = 0; h < H; h++) {
       for (let w = 0; w < W; w++) {
         const val = pixelValues[h * W + w];
         const normalized = (val - minVal) / range;
-        
+
         let r: number, g: number, b: number;
-        
+
         if (isRingTensor) {
           // Cyclic color scheme: map normalized value to hue (0-1)
           // Use full saturation and value for vibrant colors
@@ -117,7 +117,7 @@ export class Visualizer {
           const gray = Math.max(0, Math.min(255, Math.round(normalized * 255)));
           r = g = b = gray;
         }
-        
+
         // Scale up pixels
         for (let sh = 0; sh < scale; sh++) {
           for (let sw = 0; sw < scale; sw++) {
@@ -132,7 +132,7 @@ export class Visualizer {
         }
       }
     }
-    
+
     return imageData;
   }
 
@@ -142,10 +142,10 @@ export class Visualizer {
   static drawActivationsGrid(activation: LayerActivation, container: HTMLElement): void {
     const tensor = activation.output;
     const shape = tensor.shape;
-    
+
     // Clear container
     container.innerHTML = '';
-    
+
     const header = document.createElement('div');
     header.style.marginBottom = '10px';
     header.style.fontWeight = 'bold';
@@ -156,14 +156,14 @@ export class Visualizer {
     const formattedName = this.formatLayerName(activation.name);
     header.textContent = `Layer ${activation.layerIdx}: ${formattedName} (shape: [${shape.join(', ')}])`;
     container.appendChild(header);
-    
+
     // Handle different tensor shapes
     if (shape.length === 4 && shape[0] === 1) {
       // NHWC: [1, H, W, C] - show all channels
       const C = shape[3];
       const H = shape[1];
       const W = shape[2];
-      
+
       const grid = document.createElement('div');
       grid.style.display = 'flex';
       grid.style.flexWrap = 'wrap';
@@ -171,10 +171,10 @@ export class Visualizer {
       grid.style.padding = '10px';
       grid.style.border = '1px solid #ccc';
       grid.style.borderRadius = '4px';
-      
+
       const FIXED_CANVAS_SIZE = 200;
       const floatData = tensor.asFloat();
-      
+
       // Create tooltip element
       const tooltip = document.createElement('div');
       tooltip.style.position = 'fixed';
@@ -190,48 +190,48 @@ export class Visualizer {
       tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
       tooltip.style.whiteSpace = 'pre-line';
       document.body.appendChild(tooltip);
-      
+
       for (let c = 0; c < C; c++) {
         const canvas = document.createElement('canvas');
         const imageData = this.tensorToImageData(tensor, c, 1);
-        
+
         // Create temporary canvas for the native resolution image
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = imageData.width;
         tempCanvas.height = imageData.height;
         const tempCtx = tempCanvas.getContext('2d')!;
         tempCtx.putImageData(imageData, 0, 0);
-        
+
         // Set fixed size for display canvas
         canvas.width = FIXED_CANVAS_SIZE;
         canvas.height = FIXED_CANVAS_SIZE;
         const ctx = canvas.getContext('2d')!;
         ctx.imageSmoothingEnabled = true;
         ctx.drawImage(tempCanvas, 0, 0, FIXED_CANVAS_SIZE, FIXED_CANVAS_SIZE);
-        
+
         // Add hover functionality
         canvas.addEventListener('mousemove', (e) => {
           const rect = canvas.getBoundingClientRect();
           const x = e.clientX - rect.left;
           const y = e.clientY - rect.top;
-          
+
           // Convert canvas coordinates to tensor coordinates
           const tensorX = Math.floor((x / FIXED_CANVAS_SIZE) * W);
           const tensorY = Math.floor((y / FIXED_CANVAS_SIZE) * H);
-          
+
           // Clamp to valid range
           const clampedX = Math.max(0, Math.min(W - 1, tensorX));
           const clampedY = Math.max(0, Math.min(H - 1, tensorY));
-          
+
           // Get value from tensor: [1, H, W, C] -> index = (H * W * c) + (h * W) + w
           const idx = (clampedY * W + clampedX) * C + c;
           const value = floatData[idx];
-          
+
           tooltip.textContent = `Channel ${c}\nPosition: [${clampedY}, ${clampedX}]\nValue: ${value.toFixed(6)}`;
           tooltip.style.display = 'block';
           tooltip.style.left = `${e.clientX + 10}px`;
           tooltip.style.top = `${e.clientY + 10}px`;
-          
+
           // Keep tooltip within viewport
           const tooltipRect = tooltip.getBoundingClientRect();
           if (tooltipRect.right > window.innerWidth) {
@@ -241,23 +241,23 @@ export class Visualizer {
             tooltip.style.top = `${e.clientY - tooltipRect.height - 10}px`;
           }
         });
-        
+
         canvas.addEventListener('mouseleave', () => {
           tooltip.style.display = 'none';
         });
-        
+
         const wrapper = document.createElement('div');
         wrapper.style.textAlign = 'center';
         wrapper.style.fontSize = '10px';
         wrapper.style.color = '#666';
-        
+
         const label = document.createElement('div');
         label.textContent = `Ch ${c}`;
         wrapper.appendChild(label);
         wrapper.appendChild(canvas);
         grid.appendChild(wrapper);
       }
-      
+
       container.appendChild(grid);
     } else if (shape.length === 2 && shape[0] === 1) {
       // Flattened output: [1, N] - show as bar chart
@@ -268,31 +268,31 @@ export class Visualizer {
       const FIXED_CANVAS_SIZE = 200;
       const floatData = tensor.asFloat();
       let H: number, W: number;
-      
+
       if (shape.length === 3 && shape[0] === 1) {
         [H, W] = [shape[1], shape[2]];
       } else {
         const side = Math.ceil(Math.sqrt(shape[1]));
         H = W = side;
       }
-      
+
       const canvas = document.createElement('canvas');
       const imageData = this.tensorToImageData(tensor, undefined, 1);
-      
+
       // Create temporary canvas for the native resolution image
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = imageData.width;
       tempCanvas.height = imageData.height;
       const tempCtx = tempCanvas.getContext('2d')!;
       tempCtx.putImageData(imageData, 0, 0);
-      
+
       // Set fixed size for display canvas
       canvas.width = FIXED_CANVAS_SIZE;
       canvas.height = FIXED_CANVAS_SIZE;
       const ctx = canvas.getContext('2d')!;
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(tempCanvas, 0, 0, FIXED_CANVAS_SIZE, FIXED_CANVAS_SIZE);
-      
+
       // Create tooltip element
       const tooltip = document.createElement('div');
       tooltip.style.position = 'fixed';
@@ -308,30 +308,30 @@ export class Visualizer {
       tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
       tooltip.style.whiteSpace = 'pre-line';
       document.body.appendChild(tooltip);
-      
+
       // Add hover functionality
       canvas.addEventListener('mousemove', (e) => {
         const rect = canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        
+
         // Convert canvas coordinates to tensor coordinates
         const tensorX = Math.floor((x / FIXED_CANVAS_SIZE) * W);
         const tensorY = Math.floor((y / FIXED_CANVAS_SIZE) * H);
-        
+
         // Clamp to valid range
         const clampedX = Math.max(0, Math.min(W - 1, tensorX));
         const clampedY = Math.max(0, Math.min(H - 1, tensorY));
-        
+
         // Get value from tensor
         const idx = clampedY * W + clampedX;
         const value = floatData[idx];
-        
+
         tooltip.textContent = `Position: [${clampedY}, ${clampedX}]\nValue: ${value.toFixed(6)}`;
         tooltip.style.display = 'block';
         tooltip.style.left = `${e.clientX + 10}px`;
         tooltip.style.top = `${e.clientY + 10}px`;
-        
+
         // Keep tooltip within viewport
         const tooltipRect = tooltip.getBoundingClientRect();
         if (tooltipRect.right > window.innerWidth) {
@@ -341,11 +341,11 @@ export class Visualizer {
           tooltip.style.top = `${e.clientY - tooltipRect.height - 10}px`;
         }
       });
-      
+
       canvas.addEventListener('mouseleave', () => {
         tooltip.style.display = 'none';
       });
-      
+
       container.appendChild(canvas);
     }
   }
@@ -357,7 +357,7 @@ export class Visualizer {
   static drawBarChart(tensor: AnyTensor, container: HTMLElement, title?: string): void {
     const floatData = tensor.asFloat();
     const shape = tensor.shape;
-    
+
     let values: number[];
     if (shape.length === 2 && shape[0] === 1 || shape.length === 1) {
       values = Array.from(floatData);
@@ -366,7 +366,7 @@ export class Visualizer {
     } else {
       throw new Error(`Cannot draw bar chart for shape: [${shape.join(', ')}]`);
     }
-    
+
     // Calculate statistics
     const minVal = Math.min(...values);
     const maxVal = Math.max(...values);
@@ -375,10 +375,10 @@ export class Visualizer {
     const stdVal = Math.sqrt(variance);
     const maxAbsVal = Math.max(...values.map(Math.abs));
     const maxIdx = values.indexOf(maxVal);
-    
+
     // Check if we have negative values
     const hasNegative = minVal < 0;
-    
+
     const wrapper = document.createElement('div');
     wrapper.style.padding = '15px';
     wrapper.style.border = '1px solid #ddd';
@@ -387,7 +387,7 @@ export class Visualizer {
     wrapper.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
     wrapper.style.maxWidth = '100%';
     wrapper.style.overflow = 'hidden';
-    
+
     if (title) {
       const header = document.createElement('div');
       header.style.marginBottom = '15px';
@@ -401,7 +401,7 @@ export class Visualizer {
       header.textContent = title;
       wrapper.appendChild(header);
     }
-    
+
     // Statistics panel
     const statsPanel = document.createElement('div');
     statsPanel.style.display = 'grid';
@@ -414,7 +414,7 @@ export class Visualizer {
     statsPanel.style.fontSize = '12px';
     statsPanel.style.maxWidth = '100%';
     statsPanel.style.overflow = 'hidden';
-    
+
     const statItem = (label: string, value: number, color: string = '#666') => {
       const div = document.createElement('div');
       div.style.textAlign = 'center';
@@ -438,13 +438,13 @@ export class Visualizer {
       div.appendChild(valueEl);
       return div;
     };
-    
+
     statsPanel.appendChild(statItem('Min', minVal, '#f44336'));
     statsPanel.appendChild(statItem('Max', maxVal, '#4CAF50'));
     statsPanel.appendChild(statItem('Mean', meanVal, '#2196F3'));
     statsPanel.appendChild(statItem('Std', stdVal, '#FF9800'));
     wrapper.appendChild(statsPanel);
-    
+
     // Chart container with zero line support
     const chartContainer = document.createElement('div');
     chartContainer.style.position = 'relative';
@@ -452,7 +452,7 @@ export class Visualizer {
     chartContainer.style.paddingBottom = '30px';
     chartContainer.style.maxWidth = '100%';
     chartContainer.style.overflow = 'hidden';
-    
+
     // Zero line indicator
     if (hasNegative) {
       const zeroLine = document.createElement('div');
@@ -466,7 +466,7 @@ export class Visualizer {
       const zeroLinePos = maxAbsVal > 0 ? (maxAbsVal / (maxAbsVal + Math.abs(minVal))) * 100 : 50;
       zeroLine.style.top = `${zeroLinePos}%`;
       chartContainer.appendChild(zeroLine);
-      
+
       const zeroLabel = document.createElement('div');
       zeroLabel.style.position = 'absolute';
       zeroLabel.style.right = '5px';
@@ -477,7 +477,7 @@ export class Visualizer {
       zeroLabel.textContent = '0';
       chartContainer.appendChild(zeroLabel);
     }
-    
+
     const barsContainer = document.createElement('div');
     barsContainer.style.display = 'flex';
     barsContainer.style.alignItems = hasNegative ? 'center' : 'flex-end';
@@ -488,7 +488,7 @@ export class Visualizer {
     barsContainer.style.overflowX = 'auto';
     barsContainer.style.overflowY = 'hidden';
     barsContainer.style.minWidth = '0'; // Allow flex shrinking
-    
+
     // Tooltip element (fixed positioning for viewport-relative placement)
     const tooltip = document.createElement('div');
     tooltip.style.position = 'fixed';
@@ -508,7 +508,7 @@ export class Visualizer {
     tooltip.style.overflowWrap = 'break-word';
     // Append to wrapper so it gets cleaned up with the container
     wrapper.appendChild(tooltip);
-    
+
     values.forEach((val, idx) => {
       const barWrapper = document.createElement('div');
       barWrapper.style.display = 'flex';
@@ -517,11 +517,11 @@ export class Visualizer {
       barWrapper.style.flex = '1';
       barWrapper.style.position = 'relative';
       barWrapper.style.justifyContent = hasNegative ? (val >= 0 ? 'flex-end' : 'flex-start') : 'flex-end';
-      
+
       // Calculate bar height and position
       let heightPercent: number;
       let barTop: string = 'auto';
-      
+
       if (hasNegative) {
         const totalRange = maxAbsVal + Math.abs(minVal);
         heightPercent = (Math.abs(val) / totalRange) * 100;
@@ -534,7 +534,7 @@ export class Visualizer {
       } else {
         heightPercent = maxAbsVal > 0 ? (Math.abs(val) / maxAbsVal) * 100 : 0;
       }
-      
+
       const bar = document.createElement('div');
       bar.style.width = '100%';
       bar.style.height = `${heightPercent}%`;
@@ -543,7 +543,7 @@ export class Visualizer {
         bar.style.bottom = val >= 0 ? '50%' : 'auto';
         bar.style.top = val < 0 ? '50%' : 'auto';
       }
-      
+
       // Enhanced color scheme with gradients
       let bgColor: string;
       if (idx === maxIdx) {
@@ -563,14 +563,14 @@ export class Visualizer {
         const b = Math.round(54 + (54 - 54) * (1 - intensity));
         bgColor = `rgb(${r}, ${g}, ${b})`;
       }
-      
+
       bar.style.backgroundColor = bgColor;
       bar.style.minHeight = '2px';
       bar.style.borderRadius = hasNegative ? '2px' : '2px 2px 0 0';
       bar.style.transition = 'all 0.2s ease';
       bar.style.cursor = 'pointer';
       bar.style.boxShadow = idx === maxIdx ? '0 2px 4px rgba(0,0,0,0.2)' : '0 1px 2px rgba(0,0,0,0.1)';
-      
+
       // Value label on top of bar
       const valueLabel = document.createElement('div');
       valueLabel.style.position = hasNegative ? 'absolute' : 'relative';
@@ -591,7 +591,7 @@ export class Visualizer {
         valueLabel.style.top = val >= 0 ? '-15px' : 'calc(100% + 2px)';
         valueLabel.style.width = '100%';
       }
-      
+
       // Hover effects
       bar.addEventListener('mouseenter', (e) => {
         bar.style.transform = 'scaleY(1.05)';
@@ -614,13 +614,13 @@ export class Visualizer {
         tooltip.style.left = `${left}px`;
         tooltip.style.top = `${top}px`;
       });
-      
+
       bar.addEventListener('mouseleave', () => {
         bar.style.transform = 'scaleY(1)';
         bar.style.opacity = '1';
         tooltip.style.display = 'none';
       });
-      
+
       // Index label
       const label = document.createElement('div');
       label.style.fontSize = '10px';
@@ -628,16 +628,16 @@ export class Visualizer {
       label.style.color = '#666';
       label.style.fontWeight = idx === maxIdx ? 'bold' : 'normal';
       label.textContent = idx.toString();
-      
+
       barWrapper.appendChild(valueLabel);
       barWrapper.appendChild(bar);
       barWrapper.appendChild(label);
       barsContainer.appendChild(barWrapper);
     });
-    
+
     chartContainer.appendChild(barsContainer);
     wrapper.appendChild(chartContainer);
-    
+
     // Summary info
     const summaryDiv = document.createElement('div');
     summaryDiv.style.marginTop = '15px';
@@ -647,7 +647,7 @@ export class Visualizer {
     summaryDiv.style.fontSize = '12px';
     summaryDiv.style.maxWidth = '100%';
     summaryDiv.style.overflow = 'hidden';
-    
+
     const predictionLabel = document.createElement('div');
     predictionLabel.style.fontWeight = 'bold';
     predictionLabel.style.color = '#4CAF50';
@@ -659,7 +659,7 @@ export class Visualizer {
     const maxValue = values[maxIdx];
     predictionLabel.textContent = `Prediction: Index ${maxIdx} (value: ${maxValue.toFixed(6)})`;
     summaryDiv.appendChild(predictionLabel);
-    
+
     // Compact values display (truncated if too long)
     const valuesLabel = document.createElement('div');
     valuesLabel.style.fontFamily = 'monospace';
@@ -677,7 +677,7 @@ export class Visualizer {
       valuesLabel.textContent = `Values: [${firstFew}, ..., ${lastFew}] (${values.length} total)`;
     }
     summaryDiv.appendChild(valuesLabel);
-    
+
     wrapper.appendChild(summaryDiv);
     container.appendChild(wrapper);
   }

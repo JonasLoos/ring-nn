@@ -100,14 +100,14 @@ export class Visualizer {
             for (let c = 0; c < C; c++) {
                 const canvas = document.createElement('canvas');
                 const imageData = this.tensorToImageData(tensor, c, 1);
-                
+
                 // Create temporary canvas for the native resolution image
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = imageData.width;
                 tempCanvas.height = imageData.height;
                 const tempCtx = tempCanvas.getContext('2d');
                 tempCtx.putImageData(imageData, 0, 0);
-                
+
                 // Set fixed size for display canvas
                 canvas.width = FIXED_CANVAS_SIZE;
                 canvas.height = FIXED_CANVAS_SIZE;
@@ -135,14 +135,14 @@ export class Visualizer {
             const FIXED_CANVAS_SIZE = 200;
             const canvas = document.createElement('canvas');
             const imageData = this.tensorToImageData(tensor, undefined, 1);
-            
+
             // Create temporary canvas for the native resolution image
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = imageData.width;
             tempCanvas.height = imageData.height;
             const tempCtx = tempCanvas.getContext('2d');
             tempCtx.putImageData(imageData, 0, 0);
-            
+
             // Set fixed size for display canvas
             canvas.width = FIXED_CANVAS_SIZE;
             canvas.height = FIXED_CANVAS_SIZE;

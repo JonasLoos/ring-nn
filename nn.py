@@ -51,7 +51,7 @@ class Module(Model):
     @property
     def nparams(self) -> int:
         return sum(w.size for w in self.weights)
-    
+
     def __call__(self, x: Tensor) -> Tensor:
         return self.forward(x)
 

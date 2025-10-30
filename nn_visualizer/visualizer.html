@@ -381,7 +381,7 @@
         document.getElementById('modelInfo').textContent = model.toString();
         document.getElementById('modelInfo').style.display = 'block';
         showStatus('Model loaded successfully!', 'success');
-        
+
         if (throttleTimer) clearTimeout(throttleTimer);
         throttleTimer = setTimeout(runForwardPass, THROTTLE_INTERVAL);
       } catch (error) {

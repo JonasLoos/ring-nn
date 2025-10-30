@@ -103,11 +103,11 @@ export function broadcastShapes(shapeA: Shape, shapeB: Shape): Shape {
   const rankB = shapeB.length;
   const maxRank = Math.max(rankA, rankB);
   const outShape: number[] = [];
-  
+
   for (let i = 0; i < maxRank; i++) {
     const dimA = i < rankA ? shapeA[rankA - 1 - i] : 1;
     const dimB = i < rankB ? shapeB[rankB - 1 - i] : 1;
-    
+
     if (dimA === dimB) {
       outShape.unshift(dimA);
     } else if (dimA === 1) {
@@ -118,7 +118,7 @@ export function broadcastShapes(shapeA: Shape, shapeB: Shape): Shape {
       throw new Error(`Cannot broadcast shapes [${shapeA.join(', ')}] and [${shapeB.join(', ')}]`);
     }
   }
-  
+
   return outShape;
 }
 
@@ -135,26 +135,26 @@ export function getBroadcastedValue(
 ): { a: number; b: number } {
   let idxA = 0;
   let idxB = 0;
-  
+
   const rankA = shapeA.length;
   const rankB = shapeB.length;
   const rankOut = outShape.length;
-  
+
   for (let i = 0; i < rankOut; i++) {
     const outIdx = indices[i];
     const outDim = outShape[i];
-    
+
     // Map output index to input A
     const dimA = i < rankA ? shapeA[i] : 1;
     const aIdx = dimA === 1 ? 0 : outIdx;
     if (i < rankA) idxA += aIdx * stridesA[i];
-    
+
     // Map output index to input B
     const dimB = i < rankB ? shapeB[i] : 1;
     const bIdx = dimB === 1 ? 0 : outIdx;
     if (i < rankB) idxB += bIdx * stridesB[i];
   }
-  
+
   return { a: a[idxA] || 0, b: b[idxB] || 0 };
 }
 

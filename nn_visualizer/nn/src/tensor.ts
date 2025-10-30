@@ -54,11 +54,11 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
     }
     const rank = this.shape.length;
     const axes = normalizeAxes(axis, rank);
-    
+
     // Compute output shape (with reduced dimensions set to 1 if keepdims)
     const outShape = this.shape.slice();
     for (const ax of axes) outShape[ax] = 1;
-    
+
     const out = new Float32Array(sizeOf(outShape));
     const inF = this.asFloat();
     const inStrides = ((): number[] => {
@@ -67,7 +67,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
     const outStrides = ((): number[] => {
       const s = new Array(rank); let acc = 1; for (let i = rank - 1; i >= 0; i--) { s[i] = acc; acc *= outShape[i]; } return s;
     })();
-    
+
     const coords = new Array(rank).fill(0);
     const outSize = sizeOf(outShape);
     for (let outIndex = 0; outIndex < outSize; outIndex++) {
@@ -79,7 +79,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
         coords[i] = v;
         rem -= v * s;
       }
-      
+
       // Iterate over reduced axes and sum
       let sumVal = 0;
       const iter = (axIdx: number) => {
@@ -104,7 +104,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
       iter(0);
       out[outIndex] = f32(sumVal);
     }
-    
+
     const finalShape = keepdims ? outShape : outShape.filter((d, i) => !axes.includes(i));
     // When filtering shape, we need to ensure the data matches
     // If keepdims=false, out has size sizeOf(outShape), but finalShape has fewer dimensions
@@ -122,11 +122,11 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
     const rank = this.shape.length;
     const axes = normalizeAxes(axis, rank);
     const denom = axes.reduce((acc, ax) => acc * this.shape[ax], 1);
-    
+
     // Compute output shape (with reduced dimensions set to 1 if keepdims)
     const outShape = this.shape.slice();
     for (const ax of axes) outShape[ax] = 1;
-    
+
     const out = new Float32Array(sizeOf(outShape));
     const inF = this.asFloat();
     const inStrides = ((): number[] => {
@@ -135,7 +135,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
     const outStrides = ((): number[] => {
       const s = new Array(rank); let acc = 1; for (let i = rank - 1; i >= 0; i--) { s[i] = acc; acc *= outShape[i]; } return s;
     })();
-    
+
     const coords = new Array(rank).fill(0);
     const outSize = sizeOf(outShape);
     for (let outIndex = 0; outIndex < outSize; outIndex++) {
@@ -147,7 +147,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
         coords[i] = v;
         rem -= v * s;
       }
-      
+
       // Compute mean by dividing first, then summing (avoids intermediate values > 1)
       let meanVal = 0;
       const iter = (axIdx: number) => {
@@ -173,7 +173,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
       iter(0);
       out[outIndex] = meanVal;
     }
-    
+
     const finalShape = keepdims ? outShape : outShape.filter((d, i) => !axes.includes(i));
     const finalData = keepdims ? out : out.slice(0, sizeOf(finalShape));
     return this.constructorFromArray(finalData, [...finalShape]) as this;
@@ -356,14 +356,14 @@ export class RingTensor extends Tensor<Int16Array> {
   }
   protected binaryOp(other: Tensor<Int16Array>, f: (a: number, b: number) => number): this {
     const a = this.asFloat(); const b = other.asFloat();
-    
+
     // If shapes match exactly, use simple element-wise operation
     if (a.length === b.length && JSON.stringify(this.shape) === JSON.stringify(other.shape)) {
       const out = new Float32Array(a.length);
       for (let i = 0; i < a.length; i++) out[i] = f(a[i], b[i]);
       return this.constructorFromArray(out, [...this.shape]);
     }
-    
+
     // Otherwise, use broadcasting
     const outShape = broadcastShapes(this.shape, other.shape);
     const outSize = sizeOf(outShape);
@@ -371,7 +371,7 @@ export class RingTensor extends Tensor<Int16Array> {
     const aStrides = computeStrides(this.shape);
     const bStrides = computeStrides(other.shape);
     const outStrides = computeStrides(outShape);
-    
+
     // Iterate over output indices
     const indices = new Array(outShape.length).fill(0);
     for (let outIdx = 0; outIdx < outSize; outIdx++) {
@@ -381,21 +381,21 @@ export class RingTensor extends Tensor<Int16Array> {
         indices[i] = Math.floor(rem / outStrides[i]);
         rem %= outStrides[i];
       }
-      
+
       // Map to input indices (align from right for broadcasting)
       let aIdx = 0;
       let bIdx = 0;
       const rankA = this.shape.length;
       const rankB = other.shape.length;
       const rankOut = outShape.length;
-      
+
       for (let i = 0; i < rankOut; i++) {
         const coord = indices[i];
-        
+
         // Output dimension i maps to input dimensions counting from the right
         // Position from right: rankOut - 1 - i
         const posFromRight = rankOut - 1 - i;
-        
+
         // Map to input A dimension from right
         if (posFromRight < rankA) {
           const aInputDimIdx = rankA - 1 - posFromRight;
@@ -407,7 +407,7 @@ export class RingTensor extends Tensor<Int16Array> {
           // A doesn't have this dimension (it's broadcast), use coordinate 0
           // No need to add anything since it's broadcast
         }
-        
+
         // Map to input B dimension from right
         if (posFromRight < rankB) {
           const bInputDimIdx = rankB - 1 - posFromRight;
@@ -420,10 +420,10 @@ export class RingTensor extends Tensor<Int16Array> {
           // No need to add anything since it's broadcast
         }
       }
-      
+
       out[outIdx] = f(a[aIdx] || 0, b[bIdx] || 0);
     }
-    
+
     return this.constructorFromArray(out, [...outShape]);
   }
 }
@@ -510,14 +510,14 @@ export class RealTensor extends Tensor<Float32Array> {
   }
   protected binaryOp(other: Tensor<Float32Array>, f: (a: number, b: number) => number): this {
     const a = this.asFloat(); const b = other.asFloat();
-    
+
     // If shapes match exactly, use simple element-wise operation
     if (a.length === b.length && JSON.stringify(this.shape) === JSON.stringify(other.shape)) {
       const out = new Float32Array(a.length);
       for (let i = 0; i < a.length; i++) out[i] = f(a[i], b[i]);
       return new RealTensor(out, [...this.shape]) as this;
     }
-    
+
     // Otherwise, use broadcasting
     const outShape = broadcastShapes(this.shape, other.shape);
     const outSize = sizeOf(outShape);
@@ -525,7 +525,7 @@ export class RealTensor extends Tensor<Float32Array> {
     const aStrides = computeStrides(this.shape);
     const bStrides = computeStrides(other.shape);
     const outStrides = computeStrides(outShape);
-    
+
     // Iterate over output indices
     const indices = new Array(outShape.length).fill(0);
     for (let outIdx = 0; outIdx < outSize; outIdx++) {
@@ -535,21 +535,21 @@ export class RealTensor extends Tensor<Float32Array> {
         indices[i] = Math.floor(rem / outStrides[i]);
         rem %= outStrides[i];
       }
-      
+
       // Map to input indices (align from right for broadcasting)
       let aIdx = 0;
       let bIdx = 0;
       const rankA = this.shape.length;
       const rankB = other.shape.length;
       const rankOut = outShape.length;
-      
+
       for (let i = 0; i < rankOut; i++) {
         const coord = indices[i];
-        
+
         // Output dimension i maps to input dimensions counting from the right
         // Position from right: rankOut - 1 - i
         const posFromRight = rankOut - 1 - i;
-        
+
         // Map to input A dimension from right
         if (posFromRight < rankA) {
           const aInputDimIdx = rankA - 1 - posFromRight;
@@ -561,7 +561,7 @@ export class RealTensor extends Tensor<Float32Array> {
           // A doesn't have this dimension (it's broadcast), use coordinate 0
           // No need to add anything since it's broadcast
         }
-        
+
         // Map to input B dimension from right
         if (posFromRight < rankB) {
           const bInputDimIdx = rankB - 1 - posFromRight;
@@ -574,10 +574,10 @@ export class RealTensor extends Tensor<Float32Array> {
           // No need to add anything since it's broadcast
         }
       }
-      
+
       out[outIdx] = f(a[aIdx] || 0, b[bIdx] || 0);
     }
-    
+
     return new RealTensor(out, [...outShape]) as this;
   }
 }
