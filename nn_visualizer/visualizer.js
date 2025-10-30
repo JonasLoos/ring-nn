@@ -88,20 +88,32 @@ export class Visualizer {
             const [H, W, C] = [shape[1], shape[2], shape[3]];
             const grid = document.createElement('div');
             Object.assign(grid.style, {
-                display: 'grid',
+                display: 'flex',
+                flexWrap: 'wrap',
                 gap: '5px',
-                gridTemplateColumns: `repeat(${Math.ceil(Math.sqrt(C))}, auto)`,
                 padding: '10px',
                 border: '1px solid #ccc',
                 borderRadius: '4px'
             });
 
+            const FIXED_CANVAS_SIZE = 200;
             for (let c = 0; c < C; c++) {
                 const canvas = document.createElement('canvas');
-                const imageData = this.tensorToImageData(tensor, c, 2);
-                canvas.width = imageData.width;
-                canvas.height = imageData.height;
-                canvas.getContext('2d').putImageData(imageData, 0, 0);
+                const imageData = this.tensorToImageData(tensor, c, 1);
+                
+                // Create temporary canvas for the native resolution image
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = imageData.width;
+                tempCanvas.height = imageData.height;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.putImageData(imageData, 0, 0);
+                
+                // Set fixed size for display canvas
+                canvas.width = FIXED_CANVAS_SIZE;
+                canvas.height = FIXED_CANVAS_SIZE;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.drawImage(tempCanvas, 0, 0, FIXED_CANVAS_SIZE, FIXED_CANVAS_SIZE);
 
                 const wrapper = document.createElement('div');
                 Object.assign(wrapper.style, {
@@ -120,11 +132,23 @@ export class Visualizer {
         } else if (shape.length === 2 && shape[0] === 1) {
             this.drawBarChart(tensor, container, `Layer ${activation.layerIdx}: ${activation.name}`);
         } else {
+            const FIXED_CANVAS_SIZE = 200;
             const canvas = document.createElement('canvas');
-            const imageData = this.tensorToImageData(tensor, undefined, 2);
-            canvas.width = imageData.width;
-            canvas.height = imageData.height;
-            canvas.getContext('2d').putImageData(imageData, 0, 0);
+            const imageData = this.tensorToImageData(tensor, undefined, 1);
+            
+            // Create temporary canvas for the native resolution image
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = imageData.width;
+            tempCanvas.height = imageData.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.putImageData(imageData, 0, 0);
+            
+            // Set fixed size for display canvas
+            canvas.width = FIXED_CANVAS_SIZE;
+            canvas.height = FIXED_CANVAS_SIZE;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(tempCanvas, 0, 0, FIXED_CANVAS_SIZE, FIXED_CANVAS_SIZE);
             container.appendChild(canvas);
         }
     }

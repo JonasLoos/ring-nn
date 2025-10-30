@@ -78,8 +78,8 @@ export class Visualizer {
     const ctx = canvas.getContext('2d')!;
     const imageData = ctx.createImageData(canvas.width, canvas.height);
     
-    const minVal = Math.min(...floatData);
-    const maxVal = Math.max(...floatData);
+    const minVal = isRingTensor ? -1 : Math.min(...floatData);
+    const maxVal = isRingTensor ? 1 : Math.max(...floatData);
     const range = maxVal - minVal || 1;
     
     const pixelValues: number[] = [];
@@ -149,6 +149,10 @@ export class Visualizer {
     const header = document.createElement('div');
     header.style.marginBottom = '10px';
     header.style.fontWeight = 'bold';
+    header.style.wordWrap = 'break-word';
+    header.style.overflowWrap = 'break-word';
+    header.style.wordBreak = 'break-word';
+    header.style.maxWidth = '100%';
     const formattedName = this.formatLayerName(activation.name);
     header.textContent = `Layer ${activation.layerIdx}: ${formattedName} (shape: [${shape.join(', ')}])`;
     container.appendChild(header);
@@ -161,20 +165,86 @@ export class Visualizer {
       const W = shape[2];
       
       const grid = document.createElement('div');
-      grid.style.display = 'grid';
+      grid.style.display = 'flex';
+      grid.style.flexWrap = 'wrap';
       grid.style.gap = '5px';
-      grid.style.gridTemplateColumns = `repeat(${Math.ceil(Math.sqrt(C))}, auto)`;
       grid.style.padding = '10px';
       grid.style.border = '1px solid #ccc';
       grid.style.borderRadius = '4px';
       
+      const FIXED_CANVAS_SIZE = 200;
+      const floatData = tensor.asFloat();
+      
+      // Create tooltip element
+      const tooltip = document.createElement('div');
+      tooltip.style.position = 'fixed';
+      tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+      tooltip.style.color = 'white';
+      tooltip.style.padding = '6px 10px';
+      tooltip.style.borderRadius = '4px';
+      tooltip.style.fontSize = '12px';
+      tooltip.style.fontFamily = 'monospace';
+      tooltip.style.pointerEvents = 'none';
+      tooltip.style.zIndex = '10000';
+      tooltip.style.display = 'none';
+      tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      tooltip.style.whiteSpace = 'pre-line';
+      document.body.appendChild(tooltip);
+      
       for (let c = 0; c < C; c++) {
         const canvas = document.createElement('canvas');
-        const imageData = this.tensorToImageData(tensor, c, 6);
-        canvas.width = imageData.width;
-        canvas.height = imageData.height;
+        const imageData = this.tensorToImageData(tensor, c, 1);
+        
+        // Create temporary canvas for the native resolution image
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = imageData.width;
+        tempCanvas.height = imageData.height;
+        const tempCtx = tempCanvas.getContext('2d')!;
+        tempCtx.putImageData(imageData, 0, 0);
+        
+        // Set fixed size for display canvas
+        canvas.width = FIXED_CANVAS_SIZE;
+        canvas.height = FIXED_CANVAS_SIZE;
         const ctx = canvas.getContext('2d')!;
-        ctx.putImageData(imageData, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(tempCanvas, 0, 0, FIXED_CANVAS_SIZE, FIXED_CANVAS_SIZE);
+        
+        // Add hover functionality
+        canvas.addEventListener('mousemove', (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          
+          // Convert canvas coordinates to tensor coordinates
+          const tensorX = Math.floor((x / FIXED_CANVAS_SIZE) * W);
+          const tensorY = Math.floor((y / FIXED_CANVAS_SIZE) * H);
+          
+          // Clamp to valid range
+          const clampedX = Math.max(0, Math.min(W - 1, tensorX));
+          const clampedY = Math.max(0, Math.min(H - 1, tensorY));
+          
+          // Get value from tensor: [1, H, W, C] -> index = (H * W * c) + (h * W) + w
+          const idx = (clampedY * W + clampedX) * C + c;
+          const value = floatData[idx];
+          
+          tooltip.textContent = `Channel ${c}\nPosition: [${clampedY}, ${clampedX}]\nValue: ${value.toFixed(6)}`;
+          tooltip.style.display = 'block';
+          tooltip.style.left = `${e.clientX + 10}px`;
+          tooltip.style.top = `${e.clientY + 10}px`;
+          
+          // Keep tooltip within viewport
+          const tooltipRect = tooltip.getBoundingClientRect();
+          if (tooltipRect.right > window.innerWidth) {
+            tooltip.style.left = `${e.clientX - tooltipRect.width - 10}px`;
+          }
+          if (tooltipRect.bottom > window.innerHeight) {
+            tooltip.style.top = `${e.clientY - tooltipRect.height - 10}px`;
+          }
+        });
+        
+        canvas.addEventListener('mouseleave', () => {
+          tooltip.style.display = 'none';
+        });
         
         const wrapper = document.createElement('div');
         wrapper.style.textAlign = 'center';
@@ -195,12 +265,87 @@ export class Visualizer {
       this.drawBarChart(tensor, container, `Layer ${activation.layerIdx}: ${formattedName}`);
     } else {
       // Single image
+      const FIXED_CANVAS_SIZE = 200;
+      const floatData = tensor.asFloat();
+      let H: number, W: number;
+      
+      if (shape.length === 3 && shape[0] === 1) {
+        [H, W] = [shape[1], shape[2]];
+      } else {
+        const side = Math.ceil(Math.sqrt(shape[1]));
+        H = W = side;
+      }
+      
       const canvas = document.createElement('canvas');
-      const imageData = this.tensorToImageData(tensor, undefined, 6);
-      canvas.width = imageData.width;
-      canvas.height = imageData.height;
+      const imageData = this.tensorToImageData(tensor, undefined, 1);
+      
+      // Create temporary canvas for the native resolution image
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = imageData.width;
+      tempCanvas.height = imageData.height;
+      const tempCtx = tempCanvas.getContext('2d')!;
+      tempCtx.putImageData(imageData, 0, 0);
+      
+      // Set fixed size for display canvas
+      canvas.width = FIXED_CANVAS_SIZE;
+      canvas.height = FIXED_CANVAS_SIZE;
       const ctx = canvas.getContext('2d')!;
-      ctx.putImageData(imageData, 0, 0);
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(tempCanvas, 0, 0, FIXED_CANVAS_SIZE, FIXED_CANVAS_SIZE);
+      
+      // Create tooltip element
+      const tooltip = document.createElement('div');
+      tooltip.style.position = 'fixed';
+      tooltip.style.backgroundColor = 'rgba(0, 0, 0, 0.9)';
+      tooltip.style.color = 'white';
+      tooltip.style.padding = '6px 10px';
+      tooltip.style.borderRadius = '4px';
+      tooltip.style.fontSize = '12px';
+      tooltip.style.fontFamily = 'monospace';
+      tooltip.style.pointerEvents = 'none';
+      tooltip.style.zIndex = '10000';
+      tooltip.style.display = 'none';
+      tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
+      tooltip.style.whiteSpace = 'pre-line';
+      document.body.appendChild(tooltip);
+      
+      // Add hover functionality
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        // Convert canvas coordinates to tensor coordinates
+        const tensorX = Math.floor((x / FIXED_CANVAS_SIZE) * W);
+        const tensorY = Math.floor((y / FIXED_CANVAS_SIZE) * H);
+        
+        // Clamp to valid range
+        const clampedX = Math.max(0, Math.min(W - 1, tensorX));
+        const clampedY = Math.max(0, Math.min(H - 1, tensorY));
+        
+        // Get value from tensor
+        const idx = clampedY * W + clampedX;
+        const value = floatData[idx];
+        
+        tooltip.textContent = `Position: [${clampedY}, ${clampedX}]\nValue: ${value.toFixed(6)}`;
+        tooltip.style.display = 'block';
+        tooltip.style.left = `${e.clientX + 10}px`;
+        tooltip.style.top = `${e.clientY + 10}px`;
+        
+        // Keep tooltip within viewport
+        const tooltipRect = tooltip.getBoundingClientRect();
+        if (tooltipRect.right > window.innerWidth) {
+          tooltip.style.left = `${e.clientX - tooltipRect.width - 10}px`;
+        }
+        if (tooltipRect.bottom > window.innerHeight) {
+          tooltip.style.top = `${e.clientY - tooltipRect.height - 10}px`;
+        }
+      });
+      
+      canvas.addEventListener('mouseleave', () => {
+        tooltip.style.display = 'none';
+      });
+      
       container.appendChild(canvas);
     }
   }
@@ -240,6 +385,8 @@ export class Visualizer {
     wrapper.style.borderRadius = '8px';
     wrapper.style.backgroundColor = '#fafafa';
     wrapper.style.boxShadow = '0 2px 4px rgba(0,0,0,0.05)';
+    wrapper.style.maxWidth = '100%';
+    wrapper.style.overflow = 'hidden';
     
     if (title) {
       const header = document.createElement('div');
@@ -247,6 +394,10 @@ export class Visualizer {
       header.style.fontWeight = 'bold';
       header.style.fontSize = '16px';
       header.style.color = '#333';
+      header.style.wordWrap = 'break-word';
+      header.style.overflowWrap = 'break-word';
+      header.style.wordBreak = 'break-word';
+      header.style.maxWidth = '100%';
       header.textContent = title;
       wrapper.appendChild(header);
     }
@@ -261,18 +412,27 @@ export class Visualizer {
     statsPanel.style.backgroundColor = '#f0f0f0';
     statsPanel.style.borderRadius = '4px';
     statsPanel.style.fontSize = '12px';
+    statsPanel.style.maxWidth = '100%';
+    statsPanel.style.overflow = 'hidden';
     
     const statItem = (label: string, value: number, color: string = '#666') => {
       const div = document.createElement('div');
       div.style.textAlign = 'center';
+      div.style.minWidth = '0'; // Allow flex shrinking
+      div.style.overflow = 'hidden';
       const labelEl = document.createElement('div');
       labelEl.style.color = '#888';
       labelEl.style.fontSize = '10px';
+      labelEl.style.wordWrap = 'break-word';
+      labelEl.style.overflowWrap = 'break-word';
       labelEl.textContent = label;
       const valueEl = document.createElement('div');
       valueEl.style.color = color;
       valueEl.style.fontWeight = 'bold';
       valueEl.style.fontFamily = 'monospace';
+      valueEl.style.wordWrap = 'break-word';
+      valueEl.style.overflowWrap = 'break-word';
+      valueEl.style.maxWidth = '100%';
       valueEl.textContent = value.toFixed(3);
       div.appendChild(labelEl);
       div.appendChild(valueEl);
@@ -290,6 +450,8 @@ export class Visualizer {
     chartContainer.style.position = 'relative';
     chartContainer.style.paddingTop = hasNegative ? '20px' : '0';
     chartContainer.style.paddingBottom = '30px';
+    chartContainer.style.maxWidth = '100%';
+    chartContainer.style.overflow = 'hidden';
     
     // Zero line indicator
     if (hasNegative) {
@@ -323,6 +485,9 @@ export class Visualizer {
     barsContainer.style.height = hasNegative ? '250px' : '220px';
     barsContainer.style.position = 'relative';
     barsContainer.style.zIndex = '2';
+    barsContainer.style.overflowX = 'auto';
+    barsContainer.style.overflowY = 'hidden';
+    barsContainer.style.minWidth = '0'; // Allow flex shrinking
     
     // Tooltip element (fixed positioning for viewport-relative placement)
     const tooltip = document.createElement('div');
@@ -338,6 +503,9 @@ export class Visualizer {
     tooltip.style.display = 'none';
     tooltip.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
     tooltip.style.whiteSpace = 'pre-line';
+    tooltip.style.maxWidth = '250px';
+    tooltip.style.wordWrap = 'break-word';
+    tooltip.style.overflowWrap = 'break-word';
     // Append to wrapper so it gets cleaned up with the container
     wrapper.appendChild(tooltip);
     
@@ -412,7 +580,12 @@ export class Visualizer {
       valueLabel.style.fontFamily = 'monospace';
       valueLabel.style.textAlign = 'center';
       valueLabel.style.marginBottom = '2px';
-      valueLabel.style.whiteSpace = 'nowrap';
+      valueLabel.style.wordWrap = 'break-word';
+      valueLabel.style.overflowWrap = 'break-word';
+      valueLabel.style.wordBreak = 'break-word';
+      valueLabel.style.maxWidth = '100%';
+      valueLabel.style.overflow = 'hidden';
+      valueLabel.style.textOverflow = 'ellipsis';
       valueLabel.textContent = val.toFixed(2);
       if (hasNegative) {
         valueLabel.style.top = val >= 0 ? '-15px' : 'calc(100% + 2px)';
@@ -472,11 +645,17 @@ export class Visualizer {
     summaryDiv.style.backgroundColor = '#f9f9f9';
     summaryDiv.style.borderRadius = '4px';
     summaryDiv.style.fontSize = '12px';
+    summaryDiv.style.maxWidth = '100%';
+    summaryDiv.style.overflow = 'hidden';
     
     const predictionLabel = document.createElement('div');
     predictionLabel.style.fontWeight = 'bold';
     predictionLabel.style.color = '#4CAF50';
     predictionLabel.style.marginBottom = '5px';
+    predictionLabel.style.wordWrap = 'break-word';
+    predictionLabel.style.overflowWrap = 'break-word';
+    predictionLabel.style.wordBreak = 'break-word';
+    predictionLabel.style.maxWidth = '100%';
     const maxValue = values[maxIdx];
     predictionLabel.textContent = `Prediction: Index ${maxIdx} (value: ${maxValue.toFixed(6)})`;
     summaryDiv.appendChild(predictionLabel);
@@ -486,6 +665,10 @@ export class Visualizer {
     valuesLabel.style.fontFamily = 'monospace';
     valuesLabel.style.color = '#666';
     valuesLabel.style.fontSize = '11px';
+    valuesLabel.style.wordWrap = 'break-word';
+    valuesLabel.style.overflowWrap = 'break-word';
+    valuesLabel.style.wordBreak = 'break-word';
+    valuesLabel.style.maxWidth = '100%';
     if (values.length <= 20) {
       valuesLabel.textContent = `Values: [${values.map(v => v.toFixed(3)).join(', ')}]`;
     } else {
