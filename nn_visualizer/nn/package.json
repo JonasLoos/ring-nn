@@ -1,0 +1,17 @@
+{
+  "name": "nn",
+  "version": "0.1.0",
+  "description": "Browser ESM TS library mirroring tensor.py and nn.py (no backprop)",
+  "type": "module",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist"
+  },
+  "sideEffects": false,
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.19.24"
+  }
+}

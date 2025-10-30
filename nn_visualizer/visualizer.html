@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ring NN Visualizer</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f5f5;
+      padding: 20px;
+    }
+    
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+      border-bottom: 3px solid #4CAF50;
+      padding-bottom: 10px;
+    }
+    
+    .container {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    
+    .left-panel {
+      flex: 0 0 350px;
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .right-panel {
+      flex: 1 1 600px;
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+    }
+    
+    .section {
+      margin-bottom: 20px;
+    }
+    
+    .section h2 {
+      color: #4CAF50;
+      margin-bottom: 10px;
+      font-size: 18px;
+    }
+    
+    #drawCanvas {
+      border: 2px solid #ccc;
+      border-radius: 4px;
+      cursor: crosshair;
+      display: block;
+      background: white;
+      touch-action: none;
+    }
+    
+    .canvas-controls {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    
+    button:hover {
+      background: #45a049;
+    }
+    
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    
+    .brush-size {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    .brush-size label {
+      font-size: 14px;
+    }
+    
+    .brush-size input {
+      width: 60px;
+    }
+    
+    #modelSelect, #modelFileInput {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    
+    #modelInfo {
+      background: #f9f9f9;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    
+    #inputPreview {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    
+    .activation-item {
+      margin-bottom: 20px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: #fafafa;
+    }
+    
+    .status {
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+    }
+    
+    #outputSection {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f0f8ff;
+      border-radius: 4px;
+      border: 2px solid #4CAF50;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧠 Ring Neural Network Visualizer</h1>
+  
+  <div class="container">
+    <!-- Left Panel: Canvas and Controls -->
+    <div class="left-panel">
+      <div class="section">
+        <h2>Draw Input Image</h2>
+        <canvas id="drawCanvas" width="280" height="280"></canvas>
+        <div class="canvas-controls">
+          <button id="clearBtn">Clear</button>
+          <div class="brush-size">
+            <label>Brush:</label>
+            <input type="range" id="brushSize" min="1" max="20" value="10">
+            <span id="brushSizeValue">10</span>
+          </div>
+        </div>
+        <div class="section">
+          <h3>Input Preview (28×28)</h3>
+          <canvas id="inputPreview" width="280" height="280"></canvas>
+        </div>
+      </div>
+      
+      <div class="section">
+        <h2>Load Model</h2>
+        <select id="modelSelect">
+          <option value="">Select from server...</option>
+        </select>
+        <div style="margin: 10px 0; text-align: center; color: #666;">or</div>
+        <input type="file" id="modelFileInput" accept=".bin">
+        <div id="modelInfo" style="margin-top: 10px; display: none;"></div>
+      </div>
+    </div>
+    
+    <!-- Right Panel: Visualizations -->
+    <div class="right-panel">
+      <div id="status" class="status info" style="display: none;"></div>
+      
+      <div id="activationsSection" class="section" style="display: none;">
+        <h2>Intermediate Activations</h2>
+        <div id="activationsContainer"></div>
+      </div>
+      
+      <div id="outputSection" class="section" style="display: none;">
+        <h2>Final Output</h2>
+        <div id="outputContainer"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { 
+      RingTensor, 
+      RealTensor, 
+      Input, 
+      RingFF, 
+      RingConv,
+      loadFromArrayBuffer 
+    } from './nn/dist/index.js';
+    
+    import { Visualizer } from './src/visualizer.js';
+
+    // Backend API URL (Flask server on port 5000)
+    const API_BASE = 'http://localhost:5000';
+
+    // Canvas setup
+    const drawCanvas = document.getElementById('drawCanvas');
+    const drawCtx = drawCanvas.getContext('2d');
+    const previewCanvas = document.getElementById('inputPreview');
+    const previewCtx = previewCanvas.getContext('2d');
+    
+    let isDrawing = false;
+    let brushSize = 10;
+    let model = null;
+    let visualizer = null;
+    let debounceTimer = null;
+    
+    // Initialize canvas
+    drawCtx.fillStyle = '#000';
+    drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+    
+    // Brush size control
+    const brushSizeSlider = document.getElementById('brushSize');
+    const brushSizeValue = document.getElementById('brushSizeValue');
+    brushSizeSlider.addEventListener('input', (e) => {
+      brushSize = parseInt(e.target.value);
+      brushSizeValue.textContent = brushSize;
+    });
+    
+    // Drawing handlers
+    function getMousePos(e) {
+      const rect = drawCanvas.getBoundingClientRect();
+      return {
+        x: (e.clientX - rect.left) * (drawCanvas.width / rect.width),
+        y: (e.clientY - rect.top) * (drawCanvas.height / rect.height)
+      };
+    }
+    
+    function startDrawing(e) {
+      isDrawing = true;
+      const pos = getMousePos(e);
+      drawCtx.fillStyle = '#fff';
+      drawCtx.beginPath();
+      drawCtx.arc(pos.x, pos.y, brushSize / 2, 0, Math.PI * 2);
+      drawCtx.fill();
+      updatePreview();
+    }
+    
+    function draw(e) {
+      if (!isDrawing) return;
+      const pos = getMousePos(e);
+      drawCtx.fillStyle = '#fff';
+      drawCtx.beginPath();
+      drawCtx.arc(pos.x, pos.y, brushSize / 2, 0, Math.PI * 2);
+      drawCtx.fill();
+      updatePreview();
+    }
+    
+    function stopDrawing() {
+      isDrawing = false;
+    }
+    
+    drawCanvas.addEventListener('mousedown', startDrawing);
+    drawCanvas.addEventListener('mousemove', draw);
+    drawCanvas.addEventListener('mouseup', stopDrawing);
+    drawCanvas.addEventListener('mouseleave', stopDrawing);
+    
+    // Touch support
+    drawCanvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const mouseEvent = new MouseEvent('mousedown', {
+        clientX: touch.clientX,
+        clientY: touch.clientY
+      });
+      startDrawing(mouseEvent);
+    });
+    
+    drawCanvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const mouseEvent = new MouseEvent('mousemove', {
+        clientX: touch.clientX,
+        clientY: touch.clientY
+      });
+      draw(mouseEvent);
+    });
+    
+    drawCanvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      stopDrawing();
+    });
+    
+    // Clear button
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      drawCtx.fillStyle = '#000';
+      drawCtx.fillRect(0, 0, drawCanvas.width, drawCanvas.height);
+      updatePreview();
+    });
+    
+    // Convert canvas to RingTensor input
+    function canvasToTensor() {
+      // Get image data from draw canvas
+      const imageData = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+      
+      // Scale down to 28x28
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 28;
+      tempCanvas.height = 28;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(drawCanvas, 0, 0, 28, 28);
+      
+      const scaledImageData = tempCtx.getImageData(0, 0, 28, 28);
+      
+      // Convert to grayscale and normalize to [-1, 1]
+      const grayValues = new Float32Array(28 * 28);
+      for (let i = 0; i < scaledImageData.data.length; i += 4) {
+        const r = scaledImageData.data[i];
+        const g = scaledImageData.data[i + 1];
+        const b = scaledImageData.data[i + 2];
+        const gray = (r + g + b) / 3;
+        // Normalize: 0-255 -> -1 to 1
+        grayValues[i / 4] = (gray / 255) * 2 - 1;
+      }
+      
+      // Create RingTensor [1, 28, 28, 1]
+      const reshaped = new Float32Array(1 * 28 * 28 * 1);
+      for (let h = 0; h < 28; h++) {
+        for (let w = 0; w < 28; w++) {
+          reshaped[h * 28 + w] = grayValues[h * 28 + w];
+        }
+      }
+      
+      return new RingTensor(reshaped, [1, 28, 28, 1]);
+    }
+    
+    // Update preview
+    function updatePreview() {
+      const imageData = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = 28;
+      tempCanvas.height = 28;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(drawCanvas, 0, 0, 28, 28);
+      previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      previewCtx.drawImage(tempCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+      
+      // Run forward pass if model is loaded
+      if (model && visualizer) {
+        // Debounce forward pass
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          runForwardPass();
+        }, 200);
+      }
+    }
+    
+    // Model loading
+    async function loadModelFromFile(file) {
+      try {
+        showStatus('Loading model...', 'info');
+        
+        const arrayBuffer = await file.arrayBuffer();
+        
+        // Build model architecture (MNIST example)
+        // Input((1, 28, 28, 1)).conv(4, 2, 0, 2).conv(8, 4, 0, 2).flatten(1, 2).ff(10).apply(...)
+        const modelArch = new Input([1, 28, 28, 1])
+          .conv(4, 2, 0, 2)
+          .conv(8, 4, 0, 2)
+          .flatten(1, 2)  // This should produce [1, 288] in Python, but TypeScript might need explicit reshape
+          .ff(10)
+          .apply((x) => {
+            // lambda x: 0.5 + x.cos().real()/2
+            const cos = x.cos();
+            const cosReal = cos.real();
+            const div = cosReal.div(2);
+            // Add scalar 0.5 (broadcasting will handle shape)
+            return div.add(0.5);
+          });
+        
+        await loadFromArrayBuffer(modelArch, arrayBuffer);
+        model = modelArch;
+        visualizer = new Visualizer(model);
+        
+        document.getElementById('modelInfo').textContent = model.toString();
+        document.getElementById('modelInfo').style.display = 'block';
+        showStatus('Model loaded successfully!', 'success');
+        
+        // Run initial forward pass if canvas has content
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          runForwardPass();
+        }, 100);
+      } catch (error) {
+        showStatus(`Error loading model: ${error.message}`, 'error');
+        console.error(error);
+      }
+    }
+    
+    // File input handler
+    document.getElementById('modelFileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        await loadModelFromFile(file);
+      }
+    });
+    
+    // Load models from server
+    async function loadModelList() {
+      try {
+        const response = await fetch(`${API_BASE}/list-models`);
+        const models = await response.json();
+        const select = document.getElementById('modelSelect');
+        select.innerHTML = '<option value="">Select from server...</option>';
+        models.forEach(model => {
+          const option = document.createElement('option');
+          option.value = model;
+          option.textContent = model;
+          select.appendChild(option);
+        });
+      } catch (error) {
+        console.error('Failed to load model list:', error);
+      }
+    }
+    
+    document.getElementById('modelSelect').addEventListener('change', async (e) => {
+      const modelFile = e.target.value;
+      if (modelFile) {
+        try {
+          showStatus('Converting model...', 'info');
+          const response = await fetch(`${API_BASE}/convert-model?model_file=${encodeURIComponent(modelFile)}`);
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to convert model');
+          }
+          const blob = await response.blob();
+          await loadModelFromFile(blob);
+        } catch (error) {
+          showStatus(`Error: ${error.message}`, 'error');
+          console.error(error);
+        }
+      }
+    });
+    
+    // Run forward pass and visualize
+    function runForwardPass() {
+      if (!model || !visualizer) return;
+      
+      try {
+        const input = canvasToTensor();
+        
+        // Clear previous visualizations
+        document.getElementById('activationsContainer').innerHTML = '';
+        document.getElementById('outputContainer').innerHTML = '';
+        document.getElementById('activationsSection').style.display = 'block';
+        document.getElementById('outputSection').style.display = 'block';
+        
+        // Run forward pass with activation callback
+        const output = visualizer.runForward(input, (activation) => {
+          const container = document.getElementById('activationsContainer');
+          const item = document.createElement('div');
+          item.className = 'activation-item';
+          container.appendChild(item);
+          Visualizer.drawActivationsGrid(activation, item);
+        });
+        
+        // Visualize final output
+        Visualizer.drawBarChart(output, document.getElementById('outputContainer'), 'Final Output (Classification)');
+        
+      } catch (error) {
+        showStatus(`Error running forward pass: ${error.message}`, 'error');
+        console.error(error);
+      }
+    }
+    
+    // Status display
+    function showStatus(message, type = 'info') {
+      const statusEl = document.getElementById('status');
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+      statusEl.style.display = 'block';
+      
+      if (type === 'success' || type === 'error') {
+        setTimeout(() => {
+          statusEl.style.display = 'none';
+        }, 3000);
+      }
+    }
+    
+    // Initialize
+    loadModelList();
+  </script>
+</body>
+</html>
+

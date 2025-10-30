@@ -4,8 +4,17 @@ import numpy as np
 import os
 import glob
 import json
+import struct
+from tensor import RingTensor, RealTensor
 
 app = Flask(__name__)
+
+# CORS helper
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    return response
 
 # Helper to combine arrays across training steps
 def combine_training_arrays(train_logs):
@@ -137,6 +146,83 @@ def get_binary_data(cache_key, index):
         return jsonify({"error": "Binary index out of range"}), 404
     
     return Response(binary_data_list[index], mimetype='application/octet-stream')
+
+@app.route('/list-models')
+def list_models():
+    """List available .pkl model files in logs/ directory"""
+    try:
+        model_files = [os.path.basename(f) for f in sorted(glob.glob("logs/*.pkl"), reverse=True) 
+                      if not 'log' in os.path.basename(f).lower()]
+        return add_cors_headers(jsonify(model_files))
+    except Exception as e:
+        return add_cors_headers(jsonify({"error": str(e)})), 500
+
+@app.route('/convert-model')
+def convert_model():
+    """Convert a .pkl model file to .bin format for TypeScript"""
+    model_file = request.args.get('model_file')
+    if not model_file:
+        return jsonify({"error": "model_file parameter is required"}), 400
+    
+    try:
+        file_path = os.path.join('logs', model_file)
+        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+            return jsonify({"error": f"Model file '{model_file}' not found in 'logs/' directory."}), 404
+        
+        # Load weights from pickle
+        with open(file_path, 'rb') as f:
+            weights = pickle.load(f)
+        
+        # Convert to .bin format (same as TypeScript saveToBlob)
+        metas = []
+        payloads = []
+        offset = 0
+        
+        for w in weights:
+            # Determine dtype and get raw bytes
+            if isinstance(w, RingTensor):
+                dtype = 'int16'
+                raw_data = w.data.cpu().numpy().astype(np.int16)
+                bytes_data = raw_data.tobytes()
+            elif isinstance(w, RealTensor):
+                dtype = 'float32'
+                raw_data = w.data.cpu().numpy().astype(np.float32)
+                bytes_data = raw_data.tobytes()
+            else:
+                return jsonify({"error": f"Unknown tensor type: {type(w)}"}), 400
+            
+            metas.append({
+                'dtype': dtype,
+                'shape': list(w.shape),
+                'byteOffset': offset,
+                'byteLength': len(bytes_data)
+            })
+            payloads.append(bytes_data)
+            offset += len(bytes_data)
+        
+        # Build header
+        header = {
+            'version': 1,
+            'tensors': metas
+        }
+        header_json = json.dumps(header)
+        header_bytes = header_json.encode('utf-8')
+        
+        # Build binary file: [Uint32 headerLength][header][payloads...]
+        result = bytearray()
+        result.extend(struct.pack('<I', len(header_bytes)))  # Little-endian uint32
+        result.extend(header_bytes)
+        for payload in payloads:
+            result.extend(payload)
+        
+        response = Response(bytes(result), mimetype='application/octet-stream',
+                        headers={'Content-Disposition': f'attachment; filename={os.path.splitext(model_file)[0]}.bin'})
+        return add_cors_headers(response)
+    
+    except FileNotFoundError:
+        return jsonify({"error": f"Model file '{model_file}' not found. Checked: {file_path}"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
