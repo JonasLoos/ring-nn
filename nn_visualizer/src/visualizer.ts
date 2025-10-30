@@ -11,12 +11,109 @@ export class Visualizer {
   constructor(private model: any) {}
 
   /**
+   * Format layer name for display - handles anonymous functions and long names
+   */
+  static formatLayerName(name: string): string {
+    // If it's a short, simple name, return as-is
+    if (name.length < 60 && !name.includes('=>') && !name.includes('function')) {
+      return name;
+    }
+    
+    // Handle anonymous functions
+    if (name.includes('=>') || name.includes('function')) {
+      // Try to extract meaningful operation patterns
+      const str = name.replace(/\s+/g, ' ').trim();
+      
+      // Pattern: lambda x: 0.5 + x.cos().real()/2 or similar (sigmoid activation)
+      if ((str.includes('cos') || str.includes('cos()')) && 
+          (str.includes('real') || str.includes('real()')) && 
+          (str.includes('0.5') || str.includes('.5'))) {
+        return 'Apply: sigmoid(cos(x))';
+      }
+      
+      // Pattern: x.cos() or similar
+      if (str.match(/x\.cos\(\)/)) {
+        return 'Apply: cos(x)';
+      }
+      
+      // Pattern: x.sin() or similar
+      if (str.match(/x\.sin\(\)/)) {
+        return 'Apply: sin(x)';
+      }
+      
+      // Pattern: x.real() or similar
+      if (str.match(/x\.real\(\)/)) {
+        return 'Apply: real(x)';
+      }
+      
+      // Generic anonymous function - try to extract meaningful parts
+      // Look for return statement
+      const returnMatch = str.match(/return\s+([^;]+)/);
+      if (returnMatch) {
+        let operation = returnMatch[1].trim();
+        // Remove common variable names and simplify
+        operation = operation.replace(/div\.add\(/g, 'add(')
+                             .replace(/cosReal\.div\(/g, 'div(')
+                             .replace(/cos\.real\(\)/g, 'real(cos(x))')
+                             .replace(/x\.cos\(\)/g, 'cos(x)');
+        
+        if (operation.length < 50) {
+          return `Apply: ${operation}`;
+        }
+      }
+      
+      // Fallback: show abbreviated version
+      return 'Apply: custom function';
+    }
+    
+    // For very long names, truncate
+    if (name.length > 80) {
+      return name.substring(0, 77) + '...';
+    }
+    
+    return name;
+  }
+
+  /**
+   * Convert HSV to RGB
+   */
+  static hsvToRgb(h: number, s: number, v: number): [number, number, number] {
+    const c = v * s;
+    const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+    const m = v - c;
+    
+    let r = 0, g = 0, b = 0;
+    
+    if (h * 6 < 1) {
+      r = c; g = x; b = 0;
+    } else if (h * 6 < 2) {
+      r = x; g = c; b = 0;
+    } else if (h * 6 < 3) {
+      r = 0; g = c; b = x;
+    } else if (h * 6 < 4) {
+      r = 0; g = x; b = c;
+    } else if (h * 6 < 5) {
+      r = x; g = 0; b = c;
+    } else {
+      r = c; g = 0; b = x;
+    }
+    
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ];
+  }
+
+  /**
    * Convert tensor to ImageData for canvas rendering
    * For shape [1, H, W, C], extracts a single channel or shows mean
+   * Uses cyclic color scheme for RingTensor, grayscale for RealTensor
    */
   static tensorToImageData(tensor: AnyTensor, channel?: number, scale: number = 1): ImageData {
     const floatData = tensor.asFloat();
     const shape = tensor.shape;
+    const isRingTensor = tensor.dtype === 'int16';
     
     // Handle different tensor shapes
     let H: number, W: number, C: number;
@@ -91,12 +188,24 @@ export class Visualizer {
       }
     }
     
-    // Fill ImageData (grayscale -> RGBA)
+    // Fill ImageData - cyclic color for RingTensor, grayscale for RealTensor
     for (let h = 0; h < H; h++) {
       for (let w = 0; w < W; w++) {
         const val = pixelValues[h * W + w];
         const normalized = (val - minVal) / range;
-        const gray = Math.max(0, Math.min(255, Math.round(normalized * 255)));
+        
+        let r: number, g: number, b: number;
+        
+        if (isRingTensor) {
+          // Cyclic color scheme: map normalized value to hue (0-1)
+          // Use full saturation and value for vibrant colors
+          const hue = normalized; // Value maps directly to hue position on color wheel
+          [r, g, b] = this.hsvToRgb(hue, 1.0, 1.0);
+        } else {
+          // Grayscale for RealTensor
+          const gray = Math.max(0, Math.min(255, Math.round(normalized * 255)));
+          r = g = b = gray;
+        }
         
         // Scale up pixels
         for (let sh = 0; sh < scale; sh++) {
@@ -104,9 +213,9 @@ export class Visualizer {
             const x = w * scale + sw;
             const y = h * scale + sh;
             const idx = (y * canvas.width + x) * 4;
-            imageData.data[idx] = gray;     // R
-            imageData.data[idx + 1] = gray; // G
-            imageData.data[idx + 2] = gray;  // B
+            imageData.data[idx] = r;     // R
+            imageData.data[idx + 1] = g; // G
+            imageData.data[idx + 2] = b;  // B
             imageData.data[idx + 3] = 255;   // A
           }
         }
@@ -129,7 +238,8 @@ export class Visualizer {
     const header = document.createElement('div');
     header.style.marginBottom = '10px';
     header.style.fontWeight = 'bold';
-    header.textContent = `Layer ${activation.layerIdx}: ${activation.name} (shape: [${shape.join(', ')}])`;
+    const formattedName = this.formatLayerName(activation.name);
+    header.textContent = `Layer ${activation.layerIdx}: ${formattedName} (shape: [${shape.join(', ')}])`;
     container.appendChild(header);
     
     // Handle different tensor shapes
@@ -170,7 +280,8 @@ export class Visualizer {
       container.appendChild(grid);
     } else if (shape.length === 2 && shape[0] === 1) {
       // Flattened output: [1, N] - show as bar chart
-      this.drawBarChart(tensor, container, `Layer ${activation.layerIdx}: ${activation.name}`);
+      const formattedName = this.formatLayerName(activation.name);
+      this.drawBarChart(tensor, container, `Layer ${activation.layerIdx}: ${formattedName}`);
     } else {
       // Single image
       const canvas = document.createElement('canvas');
@@ -269,7 +380,8 @@ export class Visualizer {
     predictionLabel.style.marginTop = '5px';
     predictionLabel.style.fontWeight = 'bold';
     predictionLabel.style.color = '#4CAF50';
-    predictionLabel.textContent = `Prediction: ${maxIdx} (${(values[maxIdx] * 100).toFixed(1)}%)`;
+    const maxValue = values[maxIdx];
+    predictionLabel.textContent = `Prediction: ${maxIdx} (value: ${maxValue.toFixed(3)})`;
     wrapper.appendChild(predictionLabel);
     
     container.appendChild(wrapper);
