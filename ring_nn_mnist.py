@@ -36,7 +36,7 @@ nn = (
 train_dl, test_dl = load_mnist(batch_size=200)
 train(
     nn = nn,
-    optimizer = SGD(nn, lr=50, lr_decay=0.999),
+    optimizer = SGD(nn, lr=0.5, lr_decay=0.999),
     loss_fn = lambda a, b: a.cross_entropy(b),
     train_dl = train_dl,
     test_dl = test_dl,

@@ -75,7 +75,7 @@ class RingFF(Module):
         # We don't need any bias, because it would be mathematically equivalent to just shifting the weights of the following layer by the corresponding amount.
 
     def forward(self, x: RingTensor) -> RingTensor:
-        return (x.unsqueeze(-1) - self._weights[0]).cos().mean(axis=-2)
+        return (x.unsqueeze(-1) - self._weights[0]).complex_mean(axis=-2)
         # return (x.unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=-2)
 
     def __repr__(self):
@@ -90,7 +90,7 @@ class RingConv(Module):
         self._weights = [RingTensor.rand((input_size, window_size, window_size, output_size), requires_grad=True)]
 
     def forward(self, x: RingTensor) -> RingTensor:
-        return (x.sliding_window_2d(self.window_size, self.padding, self.stride).unsqueeze(-1) - self._weights[0]).cos().mean(axis=(-4,-3,-2))
+        return (x.sliding_window_2d(self.window_size, self.padding, self.stride).unsqueeze(-1) - self._weights[0]).complex_mean(axis=-4).complex_mean(axis=-3).complex_mean(axis=-2)
         # return (x.sliding_window_2d(self.window_size, self.padding, self.stride).unsqueeze(-1) - self._weights[0]).poly_sigmoid(1.2, 4).mean(axis=(-4,-3,-2))
 
     def __repr__(self):

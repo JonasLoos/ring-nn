@@ -471,6 +471,43 @@ class RingTensor(Tensor):
             out._backward = _backward
         return out
 
+    def complex_mean(self, axis: int) -> Self:
+        axis = axis % self.data.ndim  # Normalize negative axis to positive
+        result_shape = list(self.shape)[:axis] + list(self.shape)[axis+1:]
+        theta = self.as_float() * pi
+        dir_x = torch.zeros(result_shape, dtype=torch.float32, device=device)
+        dir_y = torch.zeros(result_shape, dtype=torch.float32, device=device)
+        for i in range(self.shape[axis]):
+            idx: list[slice|int] = [slice(None)] * len(self.shape)
+            idx[axis] = i
+            dir_x += torch.cos(theta[tuple(idx)])
+            dir_y += torch.sin(theta[tuple(idx)])
+        mean_real = torch.atan2(dir_y, dir_x) / pi
+        out = self.__class__(data=mean_real.to(torch.float32), requires_grad=self._rg)
+
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    assert self._grad is not None
+                    assert out._grad is not None
+
+                    cos_vals = torch.cos(theta)
+                    sin_vals = torch.sin(theta)
+
+                    dir_x_expanded = dir_x.unsqueeze(axis)
+                    dir_y_expanded = dir_y.unsqueeze(axis)
+
+                    denom = dir_x_expanded * dir_x_expanded + dir_y_expanded * dir_y_expanded + 1e-20
+                    local_grad = (dir_y_expanded * sin_vals + dir_x_expanded * cos_vals) / denom
+
+                    grad_factor = out._grad.unsqueeze(axis)
+                    self._grad += grad_factor * local_grad
+
+            out._backward = _backward
+        return out
+
     @classmethod
     def rand(cls, shape: tuple[int, ...], requires_grad: bool = False) -> Self:
         return cls(raw_data=torch.randint(cls.min_value, cls.max_value, size=shape, dtype=cls.dtype, device=device), requires_grad=requires_grad)
