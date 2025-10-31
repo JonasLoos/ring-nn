@@ -1,22 +1,20 @@
 from optimizer import SGD, Adam
-from nn import Sequential, RingFF
+from nn import Sequential, FF
 from data import load_higgs
 from training import train
 
 
 # nn = Sequential([
-#     RingFF(28, 128),  # Input layer: 28 features -> 128 hidden units
-#     RingFF(128, 64),  # Hidden layer: 128 -> 64
-#     RingFF(64, 32),   # Hidden layer: 64 -> 32
-#     RingFF(32, 2),    # Output layer: 32 -> 2 classes
-#     lambda x: 1 - x.real().abs()  # Convert to probabilities
+#     FF(28, 128),  # Input layer: 28 features -> 128 hidden units
+#     FF(128, 64),  # Hidden layer: 128 -> 64
+#     FF(64, 32),   # Hidden layer: 64 -> 32
+#     FF(32, 2),    # Output layer: 32 -> 2 classes
 # ])
 
 # Alternative architecture
 nn = Sequential([
-    RingFF(28, 512),
-    RingFF(512, 2),
-    lambda x: 1 - x.real().abs()  # Convert to probabilities
+    FF(28, 512),
+    FF(512, 2),
 ])
 
 

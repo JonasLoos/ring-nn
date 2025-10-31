@@ -123,42 +123,6 @@ class Tensor(ABC):
             out._backward = _backward
         return out
 
-    def mean(self, axis=None, keepdims=False):
-        # Handle None axis case - torch uses no dim argument for mean all
-        # For integer dtypes, convert to float32 first
-        # TODO: maybe stay in integer domain, do division first, then sum, then add mean of reminders
-        data_for_mean = self.data.to(torch.float32) if not torch.is_floating_point(self.data) else self.data
-        if axis is None:
-            result = data_for_mean.mean()
-        else:
-            result = data_for_mean.mean(dim=axis, keepdim=keepdims)
-        out = self.__class__(raw_data=result.to(self.dtype), requires_grad=self._rg)
-
-        if not _no_grad:
-            out._prev = {self}
-
-            # Store the original shape for backward
-            original_shape = self.shape
-            original_ndim = len(original_shape)
-
-            def _backward():
-                if self._rg:
-                    assert self._grad is not None
-                    assert out._grad is not None
-                    g = out._grad / (self.size / out.size)  # scale by 1/N
-                    if not keepdims and axis is not None:
-                        # Handle both single axis and tuple of axes
-                        axes = axis if isinstance(axis, tuple) else (axis,)
-                        # Normalize negative indices to positive
-                        axes = tuple(ax % original_ndim for ax in axes)
-                        # Sort axes to insert in correct order
-                        for ax in sorted(axes):
-                            g = g.unsqueeze(ax)
-                    self._grad += g.expand(self.shape)
-
-            out._backward = _backward
-        return out
-
     @convert_other
     def __sub__(self, other: Self) -> Self:
         return self + (-other)
@@ -385,9 +349,12 @@ class RingTensor(Tensor):
         if (data is not None) == (raw_data is not None):
             raise ValueError("Exactly one of data or raw_data must be provided")
         if data is not None:
-            data_tensor = torch.as_tensor(data, dtype=torch.float32, device=device)
-            # convert data from [-1, 1] to [min, max]
-            raw_data = (data_tensor * -self.min_value).clamp(self.min_value, self.max_value).to(self.dtype)
+            if isinstance(data, RingTensor):
+                raw_data = data.data.clone()
+            else:
+                data_tensor = data.data.clone() if isinstance(data, RealTensor) else torch.as_tensor(data, dtype=torch.float32, device=device)
+                # convert data from [-1, 1] to [min, max]
+                raw_data = (data_tensor * -self.min_value).clamp(self.min_value, self.max_value).to(self.dtype)
         assert raw_data is not None
         super().__init__(raw_data=raw_data, requires_grad=requires_grad)
 
@@ -421,6 +388,20 @@ class RingTensor(Tensor):
                     assert out._grad is not None
                     # TODO: is a *self.sign missing here?
                     self._grad += out._grad * (1 + slope) - slope * out._grad * order * (torch.abs(self.as_float() + 1e-20)**(order-1))
+            out._backward = _backward
+        return out
+
+    def sin(self) -> "RingTensor":
+        out = RingTensor(torch.sin(self.as_float()*pi), requires_grad=self._rg)
+
+        if not _no_grad:
+            out._prev = {self}
+
+            def _backward():
+                if self._rg:
+                    assert self._grad is not None
+                    assert out._grad is not None
+                    self._grad += out._grad * pi * torch.cos(self.as_float()*pi)
             out._backward = _backward
         return out
 
@@ -608,6 +589,41 @@ class RealTensor(Tensor):
                     assert self._grad is not None
                     assert out._grad is not None
                     self._grad += out._grad * self.sign
+            out._backward = _backward
+        return out
+
+    def mean(self, axis=None, keepdims=False):
+        # Handle None axis case - torch uses no dim argument for mean all
+        # For integer dtypes, convert to float32 first
+        data_for_mean = self.data.to(torch.float32) if not torch.is_floating_point(self.data) else self.data
+        if axis is None:
+            result = data_for_mean.mean()
+        else:
+            result = data_for_mean.mean(dim=axis, keepdim=keepdims)
+        out = self.__class__(raw_data=result.to(self.dtype), requires_grad=self._rg)
+
+        if not _no_grad:
+            out._prev = {self}
+
+            # Store the original shape for backward
+            original_shape = self.shape
+            original_ndim = len(original_shape)
+
+            def _backward():
+                if self._rg:
+                    assert self._grad is not None
+                    assert out._grad is not None
+                    g = out._grad / (self.size / out.size)  # scale by 1/N
+                    if not keepdims and axis is not None:
+                        # Handle both single axis and tuple of axes
+                        axes = axis if isinstance(axis, tuple) else (axis,)
+                        # Normalize negative indices to positive
+                        axes = tuple(ax % original_ndim for ax in axes)
+                        # Sort axes to insert in correct order
+                        for ax in sorted(axes):
+                            g = g.unsqueeze(ax)
+                    self._grad += g.expand(self.shape)
+
             out._backward = _backward
         return out
 

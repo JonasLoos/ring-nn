@@ -47,7 +47,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
                 print(f"Epoch {print_frac(epoch+1, epochs)}")
             for i, (x, y) in enumerate(train_dl):
                 total_training_step += 1
-                pred = nn(x)
+                pred = nn(x).sin().real()
                 loss = loss_fn(pred, y)
                 accuracy = (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
                 loss.backward()
@@ -89,7 +89,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
             test_accuracy = 0
             with no_grad():  # Disable gradient computation during testing
                 for test_i, (x, y) in enumerate(test_dl):
-                    pred = nn(x)
+                    pred = nn(x).sin().real()
                     test_loss += loss_fn(pred, y).data.item()
                     test_accuracy += (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
 
