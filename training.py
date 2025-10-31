@@ -3,11 +3,44 @@ import pickle
 from typing import Any
 from pathlib import Path
 
+import torch
+
 from tensor import no_grad, Tensor, RingTensor
 from nn import Model
 from optimizer import Optimizer
 from data import Dataloader
 from typing import Callable
+
+
+class MeasureWeightChange:
+    def __init__(self, nn: Model):
+        self.nn = nn
+        self.weights_original = None
+        self.weights_final = None
+
+    def __enter__(self):
+        self.weights_original = [w.data.clone() for w in self.nn.weights]
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.weights_final = [w.data.clone() for w in self.nn.weights]
+
+    def mean_abs_change(self) -> float:
+        assert self.weights_original is not None
+        assert self.weights_final is not None
+        total_abs_change = sum(torch.abs(w_final - w_original).sum().item() for w_final, w_original in zip(self.weights_final, self.weights_original))
+        return total_abs_change / sum(w.size for w in self.nn.weights)
+
+    def biggest_abs_change(self) -> float:
+        assert self.weights_original is not None
+        assert self.weights_final is not None
+        result_int = max(torch.stack([torch.abs(w_final - w_original), torch.abs(w_original - w_final)]).min(0).values.max().item() for w_final, w_original in zip(self.weights_final, self.weights_original))
+        return result_int / -RingTensor.min_value
+
+    def num_wraps(self) -> int:
+        assert self.weights_original is not None
+        assert self.weights_final is not None
+        return int(sum(((torch.abs(w_final.float()/ -RingTensor.min_value - w_original.float()/ -RingTensor.min_value) > 1.0)*1.0).sum().item() for w_final, w_original in zip(self.weights_final, self.weights_original)))
 
 
 def print_frac(a: int, b: int) -> str:
@@ -51,9 +84,10 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
                 loss = loss_fn(pred, y)
                 accuracy = (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
                 loss.backward()
-                opt_logs = optimizer()
+                with MeasureWeightChange(nn) as weight_change:
+                    opt_logs = optimizer()
                 if log_to_terminal:
-                    print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg grad change: {opt_logs['abs_update_final']:+.2e} (float: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}", end="")
+                    print(f"\r[{print_frac(i+1, len(train_dl))}] Train loss: {loss.data.item():7.4f} | accuracy: {accuracy:6.2%} | avg grad change: {opt_logs['abs_update_final']:+.2e} (float: {opt_logs['abs_update_float']:.2e}) | lr: {optimizer.lr:.2e}, bwc: {weight_change.biggest_abs_change():.2e}, nw: {weight_change.num_wraps():5d}", end="")
                 if log_to_file:
                     train_logs.append({
                         'weights': [w.data.clone() for w in nn.weights],
@@ -76,6 +110,8 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
                         'accuracy': accuracy,
                         'abs_update_float': opt_logs['abs_update_float'],
                         'abs_update_final': opt_logs['abs_update_final'],
+                        'biggest_abs_change': weight_change.biggest_abs_change(),
+                        'num_wraps': weight_change.num_wraps(),
                         'lr': optimizer.lr,
                     })
                 # Clear references and force garbage collection every few batches
