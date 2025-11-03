@@ -51,14 +51,16 @@ In this implementation a `RingTensor` represents a real number between -1 and 1,
 
 Implementation of Ring and Real Tensors with many usual operations and autograd is functional. Neural network layers (FF, Conv, Sequential) with one PyTorch-like API and one with shape inference are available. Dataset loading (MNIST, CIFAR10, Higgs) and optimizers (SGD, Adam) work.
 
-Current performance:
+Current performance (test accuracy):
 * **MNIST**: **95.3%** for a nn with 3 conv and 2 ff layer with 29k params
 * **CIFAR10**: **42.3%** for a nn with 3 conv and 2 ff layer with 98k params
-* **Higgs**: **68.4%** for a nn with 3 ff layers with 12k params
+* **Higgs**: **69.1%** for a nn with 4 ff layers with 89k params
 
 i.e. learning works, but performance is still quite bad, slightly better than a linear classifier.
 
 Common hyperparams:
+* optimizer: Adam
 * learning rate: 1e-2 - 1e+1 (decay: ~0.998)
 * batch size: ~200
 * epochs: 10
+* precision: 16 bit
