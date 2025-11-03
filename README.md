@@ -30,7 +30,8 @@ Todays neural networks work with high-dimensional intermediate representations w
 
 ### Neural Network
 
-Similar to a traditional neural network (nn), a ring nn can also consist of multiple layers with a fixed set of neurons each. Each neuron also receives all outputs of the previous layer as inputs. Differently from a traditional neuron, a ring neuron doesn't use dot product between the weights and inputs, followed by an activation function. Instead it computes the difference between inputs and weights on the ring, then uses a non-linearity (e.g. cos), and only then aggregates the dimensions using mean. Similarly to traditional nn, we can not only implement forward layers, but also e.g. convolutional layers.
+Similar to a traditional neural network (nn), a ring nn can also consist of multiple layers with a fixed set of neurons each. Each neuron also receives all outputs of the previous layer as inputs. Differently from a traditional neuron, a ring neuron doesn't use dot product between the weights and inputs, followed by an activation function. Instead it computes the difference between inputs and weights on the ring and then computes the aggregated result value by interpreting the differences as the angles of unit complex numbers, summing them, and taking the resulting angle.
+Similarly to traditional nn, we can not only implement forward layers, but also e.g. convolutional layers. For loss computation, we apply `.sin()` before converting to real values, ensuring that the loss and gradients properly account for the circular nature of the ring weights.
 
 
 ### Tensors
@@ -42,7 +43,6 @@ In this implementation a `RingTensor` represents a real number between -1 and 1,
 
 ### Open Questions
 
-* How to aggregate the dimensions of a ring neuron? Using mean (as currently done) seems like a bad option if the different values are near uniformly distributed (which is expected), because then the mean is not really well defined. E.g. when aggregating [0,1], all points on the ring are equally close to the datapoints, i.e. potential "means". Aggregating probablility distributions and drawing from this might work, but seems very complicated and slow. What else could work?
 * How valid is the interpretation as angles for a point on the hypersphere? We don't do any real angle arithmetic, so it's a hypertorus, which might have completely different properties.
 * Which non-linearity should be used and where? Using cos after the difference seems fine at first glance, but there might be other options.
 
@@ -52,13 +52,13 @@ In this implementation a `RingTensor` represents a real number between -1 and 1,
 Implementation of Ring and Real Tensors with many usual operations and autograd is functional. Neural network layers (FF, Conv, Sequential) with one PyTorch-like API and one with shape inference are available. Dataset loading (MNIST, CIFAR10, Higgs) and optimizers (SGD, Adam) work.
 
 Current performance:
-* **MNIST**: **77.5%** for a nn with 2 conv and 1 ff layer with 3.4k params
-* **CIFAR10**: **30.0%** for a nn with 3 conv and 1 ff layer with 2.2k params (not tested much)
-* **Higgs**: **67.4%** for a nn with 4 ff layers with 56.5k params
+* **MNIST**: **95.3%** for a nn with 3 conv and 2 ff layer with 29k params
+* **CIFAR10**: **42.3%** for a nn with 3 conv and 2 ff layer with 98k params
+* **Higgs**: **68.4%** for a nn with 3 ff layers with 12k params
 
-i.e. learning works, but performance is still very bad, roughtly on par with a linear classifier.
+i.e. learning works, but performance is still quite bad, slightly better than a linear classifier.
 
 Common hyperparams:
-* learning rate: 1e-2 - 1e3 (decay: ~0.999)
-* batch size: ~128
-* epochs: 5-10
+* learning rate: 1e-2 - 1e+1 (decay: ~0.998)
+* batch size: ~200
+* epochs: 10
