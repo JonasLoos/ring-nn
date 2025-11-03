@@ -44,8 +44,7 @@ In this implementation a `RingTensor` represents a real number between -1 and 1,
 ### Open Questions
 
 * How valid is the interpretation as angles for a point on the hypersphere? We don't do any real angle arithmetic, so it's a hypertorus, which might have completely different properties.
-* Which non-linearity should be used and where? Using cos after the difference seems fine at first glance, but there might be other options.
-
+* Is a non-linearity needed?
 
 ## Current State
 
