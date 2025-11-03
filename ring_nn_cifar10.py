@@ -1,29 +1,25 @@
 from optimizer import SGD, Adam
-from nn import Sequential, FF, Conv
+from nn import Input
 from data import load_cifar10
 from training import train
 
 
-# nn = Sequential([
-#     Conv(3, 5, 2, 0, 2),
-#     Conv(5, 10, 3, 1, 2),
-#     Conv(10, 10, 3, 1, 2),
-#     lambda x: x.reshape((x.shape[0], -1)),
-#     FF(10 * 4 * 4, 10),
-# ])
-
-nn = Sequential([
-    Conv(3, 6, 2, 0, 2),
-    lambda x: x.reshape((x.shape[0], -1)),
-    FF(6*16*16, 10),
-])
+nn = (
+    Input((1, 32, 32, 3))
+    .conv(16, window_size=3, padding=0, stride=1)
+    .conv(32, window_size=3, padding=0, stride=2)
+    .conv(64, window_size=3, padding=0, stride=2)
+    .flatten(1, 2)
+    .ff(32)
+    .ff(10)
+)
 
 
 # load data and train
-train_dl, test_dl = load_cifar10(batch_size=128)
+train_dl, test_dl = load_cifar10(batch_size=200)
 train(
     nn = nn,
-    optimizer = SGD(nn, lr=400.0, lr_decay=0.999),
+    optimizer = Adam(nn, lr=0.5, lr_decay=0.998),
     loss_fn = lambda a, b: a.cross_entropy(b),
     train_dl = train_dl,
     test_dl = test_dl,
