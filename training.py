@@ -74,12 +74,14 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
         train_logs = []
 
         total_training_step = -1
+        total_samples_seen = 0
         for epoch in range(epochs):
             if log_to_terminal:
                 print("-" * 100)
                 print(f"Epoch {print_frac(epoch+1, epochs)}")
             for i, (x, y) in enumerate(train_dl):
                 total_training_step += 1
+                total_samples_seen += x.shape[0]
                 pred = nn(x).sin().real()
                 loss = loss_fn(pred, y)
                 accuracy = (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
@@ -104,6 +106,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
                 if log_to_wandb:
                     wandb.log({
                         'step': total_training_step,
+                        'total_samples_seen': total_samples_seen,
                         'epoch': epoch,
                         'i': i,
                         'loss': loss.data.item(),
@@ -141,6 +144,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
             if log_to_wandb:
                 wandb.log({
                     'step': total_training_step,
+                    'total_samples_seen': total_samples_seen,
                     'epoch': epoch,
                     'test_loss': test_loss,
                     'test_accuracy': test_accuracy,
