@@ -163,9 +163,8 @@ def load_higgs(batch_size: int = 1, train_size: int | None = None, test_size: in
     x_mean = np.mean(x_data, axis=0)
     x_std = np.std(x_data, axis=0)
     x_data = (x_data - x_mean) / (x_std + 1e-8)
-    # Scale normalized data (typically in [-3, 3] range) to [-pi, pi]
-    # TODO: this is probably not optimal
-    x_data = [RingTensor(x * pi / 3) for x in x_data]
+    # Scale normalized data to [-.5pi, .5pi] with tanh
+    x_data = [RingTensor(np.tanh(x) * pi / 2) for x in x_data]
     y_data = convert_y(y_data)
 
     x_train, y_train = x_data[:num_train], y_data[:num_train]
