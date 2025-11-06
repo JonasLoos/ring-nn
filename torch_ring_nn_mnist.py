@@ -78,9 +78,9 @@ def ring_conv2d(x: torch.Tensor, weight: torch.Tensor, kernel_size: int, stride:
 class RingNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1_weight = nn.Parameter(torch.randn(4, 1, 2, 2))
-        self.conv2_weight = nn.Parameter(torch.randn(8, 4, 4, 4))
-        self.ff_weight = nn.Parameter(torch.randn(288, 10))
+        self.conv1_weight = nn.Parameter(torch.randn(20, 1, 2, 2))
+        self.conv2_weight = nn.Parameter(torch.randn(40, 20, 4, 4))
+        self.ff_weight = nn.Parameter(torch.randn(40*6*6, 10))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = ringify(x).reshape(-1, 1, 28, 28)
@@ -93,7 +93,8 @@ class RingNN(nn.Module):
 
 
 def train():
-    model = RingNN()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = RingNN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
 
     train_dl, test_dl = load_mnist(batch_size=200)
@@ -101,6 +102,7 @@ def train():
     for epoch in (te:=trange(10, desc="Epoch")):
         for batch in (tb:=tqdm(train_dl, desc="Train", leave=False)):
             x, y = batch
+            x, y = x.to(device), y.to(device)
             pred = model(x)
             loss = F.cross_entropy(pred, y)
             optimizer.zero_grad()
@@ -114,6 +116,7 @@ def train():
             total = 0
             for batch in tqdm(test_dl, desc="Test", leave=False):
                 x, y = batch
+                x, y = x.to(device), y.to(device)
                 pred = model(x)
                 test_loss += F.cross_entropy(pred, y, reduction='sum').item()
                 correct += (pred.argmax(dim=1) == y).sum().item()
