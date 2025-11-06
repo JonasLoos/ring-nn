@@ -53,7 +53,7 @@ Implementation of Ring and Real Tensors with many usual operations and autograd 
 Current performance (test accuracy):
 * **MNIST**: **95.3%** for a nn with 3 conv and 2 ff layer with 29k params
 * **CIFAR10**: **42.3%** for a nn with 3 conv and 2 ff layer with 98k params
-* **Higgs**: **69.1%** for a nn with 4 ff layers with 89k params
+* **Higgs**: **70.7%** for a nn with 4 ff layers with 89k params
 
 i.e. learning works, but performance is still quite bad, slightly better than a linear classifier.
 
