@@ -316,7 +316,7 @@ class RingTensor(Tensor):
     # dtype = torch.int32
     min_value: int = torch.iinfo(dtype).min
     max_value: int = torch.iinfo(dtype).max
-    # [min, max] corresponds to [-1, 1], with -1 and 1 being next to each other the number ring
+    # [min, max] corresponds to [-pi, pi], with -pi and pi being next to each other the number ring
     # the implementation assumes that -min_value is roughly equal to max_value
 
     def __init__(self, data=None, *, raw_data=None, requires_grad: bool = False):
@@ -327,45 +327,45 @@ class RingTensor(Tensor):
                 raw_data = data.data.clone()
             else:
                 data_tensor = data.data.clone() if isinstance(data, RealTensor) else torch.as_tensor(data, dtype=torch.float32, device=device)
-                # convert data from [-1, 1] to [min, max]
-                raw_data = (data_tensor * -self.min_value).clamp(self.min_value, self.max_value).to(self.dtype)
+                # convert data from [-pi, pi] to [min, max]
+                raw_data = (data_tensor * -self.min_value / pi).clamp(self.min_value, self.max_value).to(self.dtype)
         assert raw_data is not None
         super().__init__(raw_data=raw_data, requires_grad=requires_grad)
 
     def as_float(self) -> torch.Tensor:
-        return self.data.to(torch.float32) / -self.min_value
+        return self.data.to(torch.float32) * pi / -self.min_value
 
-    def sin(self) -> Self:
-        out = self._new(torch.sin(self.as_float()*pi))
+    def sin(self) -> "RealTensor":
+        out = RealTensor(torch.sin(self.as_float()), requires_grad=_rg(self))
 
         if not _no_grad:
             out._prev = {self}
 
             def _backward():
                 if _rg(self) and _rg(out):
-                    self._grad += out._grad * pi * torch.cos(self.as_float()*pi)
+                    self._grad += out._grad * torch.cos(self.as_float())
             out._backward = _backward
         return out
 
-    def cos(self) -> Self:
-        out = self._new(torch.cos(self.as_float()*pi))
+    def cos(self) -> "RealTensor":
+        out = RealTensor(torch.cos(self.as_float()), requires_grad=_rg(self))
 
         if not _no_grad:
             out._prev = {self}
 
             def _backward():
                 if _rg(self) and _rg(out):
-                    self._grad += out._grad * -pi * torch.sin(self.as_float()*pi)
+                    self._grad += out._grad * -torch.sin(self.as_float())
             out._backward = _backward
         return out
 
     def complex_mean(self, axis: int) -> Self:
         axis = axis % self.data.ndim  # Normalize negative axis to positive
-        theta = self.as_float() * pi
+        theta = self.as_float()
         dir_x = torch.cos(theta).sum(dim=axis)
         dir_y = torch.sin(theta).sum(dim=axis)
-        mean_real = torch.atan2(dir_y, dir_x) / pi
-        out = self.__class__(data=mean_real.to(torch.float32), requires_grad=_rg(self))
+        mean_real = torch.atan2(dir_y, dir_x)
+        out = self.__class__(data=mean_real, requires_grad=_rg(self))
 
         if not _no_grad:
             out._prev = {self}

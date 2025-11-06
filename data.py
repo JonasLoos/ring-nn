@@ -4,6 +4,7 @@ import urllib.request
 import os
 import gzip
 from tensor import RingTensor, RealTensor
+from math import pi
 
 
 
@@ -47,7 +48,8 @@ def load_mnist(batch_size: int = 1):
         urllib.request.urlretrieve(mnist_url, mnist_path)
 
     def convert_x(data):
-        return [RingTensor(x / 255).reshape((28, 28, 1)) for x in data]
+        # Scale [0, 255] to [0, pi]
+        return [RingTensor((x / 255) * pi).reshape((28, 28, 1)) for x in data]
 
     def convert_y(data):
         result = []
@@ -102,7 +104,8 @@ def load_cifar10(batch_size: int = 1):
     y_test = test_batch[b'labels']
 
     def convert_x(data):
-        return [RingTensor(x / 255) for x in data]
+        # Scale [0, 255] to [0, pi]
+        return [RingTensor((x / 255) * pi) for x in data]
 
     def convert_y(data):
         result = []
@@ -160,7 +163,9 @@ def load_higgs(batch_size: int = 1, train_size: int | None = None, test_size: in
     x_mean = np.mean(x_data, axis=0)
     x_std = np.std(x_data, axis=0)
     x_data = (x_data - x_mean) / (x_std + 1e-8)
-    x_data = [RingTensor(x) for x in x_data]
+    # Scale normalized data (typically in [-3, 3] range) to [-pi, pi]
+    # TODO: this is probably not optimal
+    x_data = [RingTensor(x * pi / 3) for x in x_data]
     y_data = convert_y(y_data)
 
     x_train, y_train = x_data[:num_train], y_data[:num_train]

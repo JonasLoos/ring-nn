@@ -334,11 +334,11 @@
 
       const scaledImageData = tempCtx.getImageData(0, 0, 28, 28);
 
-      // Convert to grayscale and normalize to [-1, 1]
+      // Convert to grayscale and normalize to [0, π]
       const grayValues = new Float32Array(28 * 28);
       for (let i = 0; i < scaledImageData.data.length; i += 4) {
         const gray = (scaledImageData.data[i] + scaledImageData.data[i + 1] + scaledImageData.data[i + 2]) / 3;
-        grayValues[i / 4] = (gray / 255) * 2 - 1;
+        grayValues[i / 4] = (gray / 255) * Math.PI;
       }
 
       return new RingTensor(grayValues, [1, 28, 28, 1]);

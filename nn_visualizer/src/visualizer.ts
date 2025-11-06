@@ -78,8 +78,8 @@ export class Visualizer {
     const ctx = canvas.getContext('2d')!;
     const imageData = ctx.createImageData(canvas.width, canvas.height);
 
-    const minVal = isRingTensor ? -1 : Math.min(...floatData);
-    const maxVal = isRingTensor ? 1 : Math.max(...floatData);
+    const minVal = isRingTensor ? -Math.PI : Math.min(...floatData);
+    const maxVal = isRingTensor ? Math.PI : Math.max(...floatData);
     const range = maxVal - minVal || 1;
 
     const pixelValues: number[] = [];

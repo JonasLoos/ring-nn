@@ -38,7 +38,7 @@ Similarly to traditional nn, we can not only implement forward layers, but also 
 
 The main idea of a ring tensor element is that it represents a continuous number on a mathematical ring, i.e. with wrap, which is why integers with overflow naturally represent this. For loss calculation and gradient descent, it's important that the difference and the direction of greatest descent might not actually be based on the absolute difference between the numbers, but that the wrapping has to be taken into account.
 
-In this implementation a `RingTensor` represents a real number between -1 and 1, i.e. the integers are to be interpreted as fixed-point numbers (+wrap). Due to their integer nature, the precision is uniform over this range. However, the gradients are calculated as float, relative to the [-1, 1] range.
+In this implementation a `RingTensor` represents a real number between -π and π, i.e. the integers are to be interpreted as fixed-point numbers (+wrap). Due to their integer nature, the precision is uniform over this range. However, the gradients are calculated as float, relative to the [-π, π] range.
 
 
 ### Open Questions

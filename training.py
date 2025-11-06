@@ -2,6 +2,7 @@ from datetime import datetime
 import pickle
 from typing import Any
 from pathlib import Path
+from math import pi
 
 import torch
 
@@ -35,12 +36,12 @@ class MeasureWeightChange:
         assert self.weights_original is not None
         assert self.weights_final is not None
         result_int = max(torch.stack([torch.abs(w_final - w_original), torch.abs(w_original - w_final)]).min(0).values.max().item() for w_final, w_original in zip(self.weights_final, self.weights_original))
-        return result_int / -RingTensor.min_value
+        return result_int * pi / -RingTensor.min_value
 
     def num_wraps(self) -> int:
         assert self.weights_original is not None
         assert self.weights_final is not None
-        return int(sum(((torch.abs(w_final.float()/ -RingTensor.min_value - w_original.float()/ -RingTensor.min_value) > 1.0)*1.0).sum().item() for w_final, w_original in zip(self.weights_final, self.weights_original)))
+        return int(sum(((torch.abs(w_final.float()* pi / -RingTensor.min_value - w_original.float()* pi / -RingTensor.min_value) > pi)*1.0).sum().item() for w_final, w_original in zip(self.weights_final, self.weights_original)))
 
 
 def print_frac(a: int, b: int) -> str:
@@ -82,7 +83,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
             for i, (x, y) in enumerate(train_dl):
                 total_training_step += 1
                 total_samples_seen += x.shape[0]
-                pred = nn(x).sin().real()
+                pred = nn(x).sin()
                 loss = loss_fn(pred, y)
                 accuracy = (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
                 loss.backward()
@@ -128,7 +129,7 @@ def train(nn: Model, optimizer: Optimizer, loss_fn: Callable[[Any, Any], Tensor]
             test_accuracy = 0
             with no_grad():  # Disable gradient computation during testing
                 for test_i, (x, y) in enumerate(test_dl):
-                    pred = nn(x).sin().real()
+                    pred = nn(x).sin()
                     test_loss += loss_fn(pred, y).data.item()
                     test_accuracy += (pred.data.argmax(-1) == y.abs().data.argmax(-1)).float().mean()
 

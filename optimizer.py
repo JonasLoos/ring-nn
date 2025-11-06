@@ -1,6 +1,7 @@
 from abc import ABC
 
 import torch
+from math import pi
 
 from tensor import RingTensor
 from nn import Model
@@ -27,11 +28,11 @@ class SGD(Optimizer):
         for w in self.nn.weights:
             if w._grad is None: continue
             update = w._grad * self.lr
-            update_final = (update.clamp(-1, 1) * -RingTensor.min_value).to(RingTensor.dtype)
+            update_final = (update.clamp(-pi, pi) * -RingTensor.min_value / pi).to(RingTensor.dtype)
             w.data -= update_final
             w.reset_grad()
             abs_update_float += torch.abs(update).mean()
-            abs_update_final += torch.abs(update_final.to(torch.float32)).mean() / -RingTensor.min_value
+            abs_update_final += torch.abs(update_final.to(torch.float32)).mean() * pi / -RingTensor.min_value
             updates_float.append(update)
             updates_final.append(update_final)
         self.lr *= self.lr_decay
@@ -76,13 +77,13 @@ class Adam(Optimizer):
             update = self.lr * m_hat / (torch.sqrt(v_hat) + self.epsilon)
 
             # Apply update to RingTensor (quantized)
-            update_final = (update.clamp(-1, 1) * -RingTensor.min_value).to(RingTensor.dtype)
+            update_final = (update.clamp(-pi, pi) * -RingTensor.min_value / pi).to(RingTensor.dtype)
             w.data -= update_final
 
             w.reset_grad()
 
             abs_update_float += torch.abs(update).mean()
-            abs_update_final += torch.abs(update_final.to(torch.float32)).mean() / -RingTensor.min_value
+            abs_update_final += torch.abs(update_final.to(torch.float32)).mean() * pi / -RingTensor.min_value
 
         self.lr *= self.lr_decay
         return {

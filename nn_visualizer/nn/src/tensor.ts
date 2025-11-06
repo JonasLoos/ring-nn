@@ -157,7 +157,7 @@ abstract class Tensor<TArray extends Float32Array | Int16Array> implements Tenso
           for (let i = 0; i < rank; i++) {
             off += coords[i] * inStrides[i];
           }
-          // Divide by denom first, then add (keeps values in [-1, 1] range)
+          // Divide by denom first, then add (keeps values in [-π, π] range)
           meanVal += f32(inF[off] / denom);
           return;
         }
@@ -263,10 +263,10 @@ export class RingTensor extends Tensor<Int16Array> {
       raw = rawOrData;
     } else {
       const arr = rawOrData instanceof Float32Array ? rawOrData : new Float32Array(rawOrData as number[]);
-      // map [-1,1] to [min,max]
+      // map [-π, π] to [min,max]
       raw = new Int16Array(arr.length);
       for (let i = 0; i < arr.length; i++) {
-        let v = Math.round(arr[i] * -RING_MIN);
+        let v = Math.round(arr[i] * -RING_MIN / Math.PI);
         raw[i] = toInt16(v);
       }
     }
@@ -275,7 +275,7 @@ export class RingTensor extends Tensor<Int16Array> {
 
   asFloat(): Float32Array {
     const out = new Float32Array(this.data.length);
-    for (let i = 0; i < this.data.length; i++) out[i] = this.data[i] / -RING_MIN;
+    for (let i = 0; i < this.data.length; i++) out[i] = this.data[i] * Math.PI / -RING_MIN;
     return out;
   }
 
@@ -286,7 +286,7 @@ export class RingTensor extends Tensor<Int16Array> {
     const out = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) {
       const v = Math.sign(f[i]) * Math.pow(Math.abs(f[i]) + 1e-20, order);
-      out[i] = toInt16(Math.round(v * -RING_MIN));
+      out[i] = toInt16(Math.round(v * -RING_MIN / Math.PI));
     }
     return new RingTensor(out, [...this.shape]);
   }
@@ -296,7 +296,7 @@ export class RingTensor extends Tensor<Int16Array> {
     const out = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) {
       const v = (1 + slope) * f[i] - slope * Math.sign(f[i]) * Math.pow(Math.abs(f[i]) + 1e-20, order);
-      out[i] = toInt16(Math.round(v * -RING_MIN));
+      out[i] = toInt16(Math.round(v * -RING_MIN / Math.PI));
     }
     return new RingTensor(out, [...this.shape]);
   }
@@ -305,8 +305,8 @@ export class RingTensor extends Tensor<Int16Array> {
     const f = this.asFloat();
     const out = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) {
-      const v = (Math.sin(f[i] * Math.PI - Math.PI / 2) + 1) * Math.sign(f[i]) * 0.5;
-      out[i] = toInt16(Math.round(v * -RING_MIN));
+      const v = (Math.sin(f[i] - Math.PI / 2) + 1) * Math.sign(f[i]) * 0.5;
+      out[i] = toInt16(Math.round(v * -RING_MIN / Math.PI));
     }
     return new RingTensor(out, [...this.shape]);
   }
@@ -315,8 +315,8 @@ export class RingTensor extends Tensor<Int16Array> {
     const f = this.asFloat();
     const out = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) {
-      const v = Math.cos(f[i] * Math.PI);
-      out[i] = toInt16(Math.round(v * -RING_MIN));
+      const v = Math.cos(f[i]);
+      out[i] = toInt16(Math.round(v * -RING_MIN / Math.PI));
     }
     return new RingTensor(out, [...this.shape]);
   }
@@ -325,9 +325,9 @@ export class RingTensor extends Tensor<Int16Array> {
     const f = this.asFloat();
     const out = new Int16Array(f.length);
     for (let i = 0; i < f.length; i++) {
-      const t = f[i] * Math.PI;
+      const t = f[i];
       const v = Math.cos(t) * 0.8 + Math.cos(t * 3) * 0.2;
-      out[i] = toInt16(Math.round(v * -RING_MIN));
+      out[i] = toInt16(Math.round(v * -RING_MIN / Math.PI));
     }
     return new RingTensor(out, [...this.shape]);
   }
@@ -335,16 +335,16 @@ export class RingTensor extends Tensor<Int16Array> {
   protected constructorFromArray(data: Float32Array, shape: number[]): this {
     const raw = new Int16Array(data.length);
     for (let i = 0; i < data.length; i++) {
-      // Quantize: map [-1, 1] to [RING_MIN, RING_MAX]
+      // Quantize: map [-π, π] to [RING_MIN, RING_MAX]
       // Don't clamp - let integer overflow/wraparound happen naturally (ring semantics)
-      const quantized = Math.round(data[i] * -RING_MIN);
+      const quantized = Math.round(data[i] * -RING_MIN / Math.PI);
       raw[i] = toInt16(quantized);
     }
     return new RingTensor(raw, shape) as this;
   }
   protected constructorFromNumber(value: number, shape: number[]): this {
     const raw = new Int16Array(sizeOf(shape));
-    const v = toInt16(Math.round(value * -RING_MIN));
+    const v = toInt16(Math.round(value * -RING_MIN / Math.PI));
     raw.fill(v);
     return new RingTensor(raw, shape) as this;
   }
