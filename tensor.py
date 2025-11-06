@@ -335,32 +335,6 @@ class RingTensor(Tensor):
     def as_float(self) -> torch.Tensor:
         return self.data.to(torch.float32) / -self.min_value
 
-    def poly(self, order: float) -> Self:
-        # polynomial activation: |x|^order * sign(x)
-        out = self._new(torch.abs(self.as_float() + 1e-20)**order * self.sign)
-
-        if not _no_grad:
-            out._prev = {self}
-
-            def _backward():
-                if _rg(self) and _rg(out):
-                    self._grad += out._grad * order * (torch.abs(self.as_float()) + 1e-20)**(order-1)
-            out._backward = _backward
-        return out
-
-    def poly_sigmoid(self, order: float, slope: float) -> Self:
-        out = self._new((1 + slope) * self.as_float() - slope * self.sign * (torch.abs(self.as_float() + 1e-20)**order))
-
-        if not _no_grad:
-            out._prev = {self}
-
-            def _backward():
-                if _rg(self) and _rg(out):
-                    # TODO: is a *self.sign missing here?
-                    self._grad += out._grad * (1 + slope) - slope * out._grad * order * (torch.abs(self.as_float() + 1e-20)**(order-1))
-            out._backward = _backward
-        return out
-
     def sin(self) -> Self:
         out = self._new(torch.sin(self.as_float()*pi))
 
@@ -373,21 +347,6 @@ class RingTensor(Tensor):
             out._backward = _backward
         return out
 
-    def sin2(self) -> Self:
-        # double sigmoid-like activation: (sin(x*pi - pi/2) + 1) * sign(x) * 0.5
-        activation = (torch.sin(self.as_float()*pi - pi/2) + 1) * self.sign * 0.5
-        out = self._new(activation)
-
-        if not _no_grad:
-            out._prev = {self}
-
-            def _backward():
-                if _rg(self) and _rg(out):
-                    # derivative of sin activation: pi * cos(x*pi - pi/2) * sign(x)
-                    self._grad += out._grad * pi * torch.cos(self.as_float()*pi - pi/2) * self.sign * 0.5
-            out._backward = _backward
-        return out
-
     def cos(self) -> Self:
         out = self._new(torch.cos(self.as_float()*pi))
 
@@ -397,20 +356,6 @@ class RingTensor(Tensor):
             def _backward():
                 if _rg(self) and _rg(out):
                     self._grad += out._grad * -pi * torch.sin(self.as_float()*pi)
-            out._backward = _backward
-        return out
-
-    def cos2(self) -> Self:
-        tmp = self.as_float() * pi
-        out = self._new(torch.cos(tmp)*0.8+torch.cos(tmp*3)*0.2)
-
-        if not _no_grad:
-            out._prev = {self}
-
-            def _backward():
-                if _rg(self) and _rg(out):
-                    self._grad += out._grad * -pi * torch.sin(tmp) * 0.8
-                    self._grad += out._grad * -pi * torch.sin(tmp*3) * 0.2
             out._backward = _backward
         return out
 
