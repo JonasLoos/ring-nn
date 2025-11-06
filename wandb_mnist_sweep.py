@@ -76,6 +76,7 @@ def train_sweep():
 # Define sweep configuration
 sweep_config = {
     'method': 'bayes',  # or 'grid', 'random'
+    'program': 'wandb_mnist_sweep.py',  # Specify the script to run
     'metric': {
         'name': 'test_accuracy',
         'goal': 'maximize'
@@ -118,10 +119,18 @@ sweep_config = {
 
 
 if __name__ == "__main__":
-    # Initialize sweep
-    sweep_id = wandb.sweep(sweep_config, project='ring-nn-mnist-sweep')
+    import sys
+
+    # If sweep ID provided as argument, use it; otherwise create new sweep
+    if len(sys.argv) > 1:
+        sweep_id = sys.argv[1]
+        # Accept either full path (entity/project/sweep_id) or just sweep_id
+        print(f"Running agent for sweep: {sweep_id}")
+    else:
+        # Initialize sweep
+        sweep_id = wandb.sweep(sweep_config, project='ring-nn-mnist-sweep')
+        print(f"Created new sweep with ID: {sweep_id}")
+        print(f"Sweep config: {sweep_config}")
 
     # Run sweep agent
-    print(f"Starting sweep with ID: {sweep_id}")
-    print(f"Sweep config: {sweep_config}")
     wandb.agent(sweep_id, train_sweep, count=None)  # count=None means run indefinitely
