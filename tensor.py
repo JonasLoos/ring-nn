@@ -416,15 +416,9 @@ class RingTensor(Tensor):
 
     def complex_mean(self, axis: int) -> Self:
         axis = axis % self.data.ndim  # Normalize negative axis to positive
-        result_shape = list(self.shape)[:axis] + list(self.shape)[axis+1:]
         theta = self.as_float() * pi
-        dir_x = torch.zeros(result_shape, dtype=torch.float32, device=device)
-        dir_y = torch.zeros(result_shape, dtype=torch.float32, device=device)
-        for i in range(self.shape[axis]):
-            idx: list[slice|int] = [slice(None)] * len(self.shape)
-            idx[axis] = i
-            dir_x += torch.cos(theta[tuple(idx)])
-            dir_y += torch.sin(theta[tuple(idx)])
+        dir_x = torch.cos(theta).sum(dim=axis)
+        dir_y = torch.sin(theta).sum(dim=axis)
         mean_real = torch.atan2(dir_y, dir_x) / pi
         out = self.__class__(data=mean_real.to(torch.float32), requires_grad=_rg(self))
 
