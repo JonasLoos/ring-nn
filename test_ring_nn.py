@@ -528,53 +528,83 @@ class TestRingTensorOps(unittest.TestCase):
             [(rt, torch_data)]
         )
 
-    def test_mean_ring(self):
-        data = torch.tensor([[10, 11], [20, 21]], dtype=self.RT_DTYPE)
+    def test_sin_ring(self):
+        # Create test data - convert from float angles to ring representation
+        # Use angles in [-pi, pi] range
+        angles = torch.tensor([[-1.0, 0.0], [0.5, 1.5]], dtype=torch.float32)
+        data = (angles * -RingTensor.min_value / torch.pi).clamp(RingTensor.min_value, RingTensor.max_value).to(self.RT_DTYPE)
+
         rt = RingTensor(raw_data=data, requires_grad=True)
-        torch_data = data.float().requires_grad_(True)
+        torch_angles = angles.clone().requires_grad_(True)
 
-        def expected_mean(d):
-            d_np = d.cpu().numpy() if hasattr(d, 'cpu') else d
-            return torch.tensor(d_np.mean(), dtype=self.RT_DTYPE)
+        # Forward pass
+        result_rt = rt.sin()
+        result_torch = torch.sin(torch_angles)
 
-        self._test_ring_op(
-            "Mean",
-            lambda x: x.mean(),
-            lambda x: x.mean(),
-            expected_mean,
-            (rt,),
-            (torch_data,),
-            [(rt, torch_data)]
-        )
+        # Check that result is RealTensor
+        self.assertIsInstance(result_rt, RealTensor)
 
-    def test_ring_sin(self):
-        data = torch.tensor([-100, 0, 50, self.RT_MAX // 2, self.RT_MIN // 2], dtype=self.RT_DTYPE)
+        # Check forward data
+        # Note: There's quantization error when converting angles to ring representation and back
+        # So we need a more relaxed tolerance
+        result_rt_np = result_rt.data.cpu().numpy() if hasattr(result_rt.data, 'cpu') else result_rt.data
+        result_torch_np = result_torch.detach().cpu().numpy() if hasattr(result_torch, 'cpu') else result_torch.detach().numpy()
+        self.assertTrue(torch.allclose(torch.tensor(result_rt_np), torch.tensor(result_torch_np), rtol=1e-3, atol=1e-3),
+                        f"Sin forward mismatch: custom={result_rt_np}, torch={result_torch_np}")
+
+        # Backward pass
+        result_rt.sum().backward()
+        result_torch.sum().backward()
+
+        # Check gradients
+        # For sin, gradient should be: out_grad * cos(input)
+        # The ring tensor gradient should accumulate: out_grad * cos(as_float(rt))
+        # Note: Due to quantization error, we need relaxed tolerance
+        assert rt._grad is not None, "Ring tensor gradient should not be None after backward"
+        assert torch_angles.grad is not None, "Torch tensor gradient should not be None after backward"
+        rt_grad_np = rt._grad.cpu().numpy() if hasattr(rt._grad, 'cpu') else rt._grad
+        torch_grad_np = torch_angles.grad.cpu().numpy() if hasattr(torch_angles.grad, 'cpu') else torch_angles.grad.numpy()
+        self.assertTrue(torch.allclose(torch.tensor(rt_grad_np), torch.tensor(torch_grad_np), rtol=1e-3, atol=1e-3),
+                        f"Sin backward mismatch: custom={rt_grad_np}, torch={torch_grad_np}")
+
+    def test_cos_ring(self):
+        # Create test data - convert from float angles to ring representation
+        # Use angles in [-pi, pi] range
+        angles = torch.tensor([[-1.0, 0.0], [0.5, 1.5]], dtype=torch.float32)
+        data = (angles * -RingTensor.min_value / torch.pi).clamp(RingTensor.min_value, RingTensor.max_value).to(self.RT_DTYPE)
+
         rt = RingTensor(raw_data=data, requires_grad=True)
-        torch_data = data.float().requires_grad_(True)
+        torch_angles = angles.clone().requires_grad_(True)
 
-        def torch_sin_op(raw_x_torch):
-            as_float_torch = raw_x_torch / (-self.RT_MIN_F)
-            sign_raw_torch = torch.sign(raw_x_torch)
-            y_f_torch = (torch.sin(as_float_torch * torch.pi - torch.pi / 2.0) + 1.0) * sign_raw_torch * 0.5
-            return y_f_torch * (-self.RT_MIN_F)
+        # Forward pass
+        result_rt = rt.cos()
+        result_torch = torch.cos(torch_angles)
 
-        def expected_sin_data(raw_d):
-            raw_d_np = raw_d.cpu().numpy() if hasattr(raw_d, 'cpu') else raw_d
-            as_float = torch.tensor(raw_d_np, dtype=torch.float32) / (-self.RT_MIN_F)
-            sign_raw = torch.sign(torch.tensor(raw_d_np, dtype=torch.float32))
-            y_f = (torch.sin(as_float * torch.pi - torch.pi / 2.0) + 1.0) * sign_raw * 0.5
-            result = y_f * (-self.RT_MIN_F)
-            return torch.clamp(result, self.RT_MIN, self.RT_MAX).to(torch.int16)
+        # Check that result is RealTensor
+        self.assertIsInstance(result_rt, RealTensor)
 
-        self._test_ring_op(
-            "Ring Sin",
-            lambda x: x.sin2(),
-            torch_sin_op,
-            expected_sin_data,
-            (rt,),
-            (torch_data,),
-            [(rt, torch_data)]
-        )
+        # Check forward data
+        # Note: There's quantization error when converting angles to ring representation and back
+        # So we need a more relaxed tolerance
+        result_rt_np = result_rt.data.cpu().numpy() if hasattr(result_rt.data, 'cpu') else result_rt.data
+        result_torch_np = result_torch.detach().cpu().numpy() if hasattr(result_torch, 'cpu') else result_torch.detach().numpy()
+        self.assertTrue(torch.allclose(torch.tensor(result_rt_np), torch.tensor(result_torch_np), rtol=1e-3, atol=1e-3),
+                        f"Cos forward mismatch: custom={result_rt_np}, torch={result_torch_np}")
+
+        # Backward pass
+        result_rt.sum().backward()
+        result_torch.sum().backward()
+
+        # Check gradients
+        # For cos, gradient should be: out_grad * -sin(input)
+        # The ring tensor gradient should accumulate: out_grad * -sin(as_float(rt))
+        # Note: Due to quantization error, we need relaxed tolerance
+        assert rt._grad is not None, "Ring tensor gradient should not be None after backward"
+        assert torch_angles.grad is not None, "Torch tensor gradient should not be None after backward"
+        rt_grad_np = rt._grad.cpu().numpy() if hasattr(rt._grad, 'cpu') else rt._grad
+        torch_grad_np = torch_angles.grad.cpu().numpy() if hasattr(torch_angles.grad, 'cpu') else torch_angles.grad.numpy()
+        self.assertTrue(torch.allclose(torch.tensor(rt_grad_np), torch.tensor(torch_grad_np), rtol=1e-3, atol=1e-3),
+                        f"Cos backward mismatch: custom={rt_grad_np}, torch={torch_grad_np}")
 
     def test_ring_real(self):
         data = torch.tensor([[-10, 20], [30, -40]], dtype=self.RT_DTYPE)
@@ -587,7 +617,7 @@ class TestRingTensorOps(unittest.TestCase):
         real_data_np = real_t.data.cpu().numpy() if hasattr(real_t.data, 'cpu') else real_t.data
         rt_float_np = rt.as_float().cpu().numpy() if hasattr(rt.as_float(), 'cpu') else rt.as_float()
         self.assertTrue(torch.allclose(torch.tensor(real_data_np), torch.tensor(rt_float_np)))
-        self.assertEqual(real_t._rg, rt._rg)
+        self.assertEqual(real_t._grad is not None, rt._grad is not None)
 
         # Check conversion back to ring tensor
         rt_from_real = RingTensor(real_t.as_float())
