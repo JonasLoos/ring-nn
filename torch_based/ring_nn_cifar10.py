@@ -3,16 +3,18 @@ import os
 from math import pi
 import numpy as np
 import torch
-from torch.nn import functional as F, Module, Parameter
+from torch.nn import functional as F, Module
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 import wandb
 
+from lib_ring_nn import RingFF, RingConv2dFused as RingConv2d, pool2d
+
 
 def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
     cifar10_url = 'https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz'
-    cifar10_path = 'cifar-10-python.tar.gz'
-    cifar10_dir = 'cifar-10-batches-py'
+    cifar10_path = '../cifar-10-python.tar.gz'
+    cifar10_dir = '../cifar-10-batches-py'
 
     if not os.path.exists(cifar10_dir):
         if not os.path.exists(cifar10_path):
@@ -51,61 +53,6 @@ def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
         DataLoader(TensorDataset(x_train, y_train), batch_size=batch_size, shuffle=True),
         DataLoader(TensorDataset(x_test, y_test), batch_size=batch_size, shuffle=False),
     )
-
-def ringify(x: torch.Tensor) -> torch.Tensor:
-    """Handle the circular nature of the number ring."""
-    return (x + pi) % (2*pi) - pi
-
-
-def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
-    """Compute the mean angle, by summing the complex unit numbers and taking the resulting complex number's angle."""
-    dir_x = ringify(torch.cos(x)).sum(dim=dim)
-    dir_y = torch.sin(x).sum(dim=dim)
-    return torch.atan2(dir_y, dir_x)
-
-
-class RingFF(Module):
-    def __init__(self, input_size: int, output_size: int):
-        super().__init__()
-        self.weight = Parameter(torch.randn(input_size, output_size))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return complex_mean(ringify(x.unsqueeze(-1) - self.weight), dim=(-2,))
-
-
-class RingConv2d(Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int, padding: int = 0):
-        super().__init__()
-        self.weight = Parameter(torch.randn(1, in_channels, out_channels, 1, 1, kernel_size, kernel_size))
-        self.stride = stride
-        self.kernel_size = kernel_size
-        self.padding = padding
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.padding > 0:
-            # For (B, C, H, W) tensor, pad the last two dimensions (H, W)
-            x = F.pad(x, (self.padding, self.padding, self.padding, self.padding), mode='constant', value=0)
-
-        # Extract patches: (B, C, 1, H', W', kernel_h, kernel_w)
-        x = x.unfold(2, self.kernel_size, self.stride).unfold(3, self.kernel_size, self.stride).unsqueeze(2)
-
-        # Subtract and compute complex mean over input channels and kernel dimensions
-        diff = ringify(x - self.weight)
-        return complex_mean(diff, dim=(1, 5, 6))
-
-
-def pool2d(x: torch.Tensor, kernel_size: int) -> torch.Tensor:
-    """
-    Pool input x (B, C, H, W) by applying complex_mean over non-overlapping patches
-    of size kernel_size x kernel_size.
-    """
-    B, C, H, W = x.shape
-    out_h = H // kernel_size
-    out_w = W // kernel_size
-    # Reshape into patches for pooling
-    x = x.view(B, C, out_h, kernel_size, out_w, kernel_size)
-    # Pool: apply complex_mean over the patch dims (-3, -1) = (kernel_size, kernel_size)
-    return complex_mean(x, dim=(-3, -1))
 
 
 class RingNN(Module):

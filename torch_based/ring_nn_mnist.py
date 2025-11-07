@@ -3,15 +3,16 @@ import os
 from math import pi
 import numpy as np
 import torch
-from torch.nn import functional as F, Module, Parameter
+from torch.nn import functional as F, Module
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 
+from lib_ring_nn import RingFF, RingConv2dFused as RingConv2d
 
 def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
     """Load the MNIST dataset."""
     mnist_url = 'https://storage.googleapis.com/tensorflow/tf-keras-datasets/mnist.npz'
-    mnist_path = 'mnist.npz'
+    mnist_path = '../mnist.npz'
 
     if not os.path.exists(mnist_path):
         print("Downloading MNIST dataset...")
@@ -30,42 +31,6 @@ def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
 
     return (train_loader, test_loader)
 
-
-def ringify(x: torch.Tensor) -> torch.Tensor:
-    """Handle the circular nature of the number ring."""
-    return (x + pi) % (2*pi) - pi
-
-
-def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
-    """Compute the mean angle, by summing the complex unit numbers and taking the resulting complex number's angle."""
-    dir_x = ringify(torch.cos(x)).sum(dim=dim)
-    dir_y = torch.sin(x).sum(dim=dim)
-    return torch.atan2(dir_y, dir_x)
-
-
-class RingFF(Module):
-    def __init__(self, input_size: int, output_size: int):
-        super().__init__()
-        self.weight = Parameter(torch.randn(input_size, output_size))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return complex_mean(ringify(x.unsqueeze(-1) - self.weight), dim=(-2,))
-
-
-class RingConv2d(Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
-        super().__init__()
-        self.weight = Parameter(torch.randn(1, in_channels, out_channels, 1, 1, kernel_size, kernel_size))
-        self.stride = stride
-        self.kernel_size = kernel_size
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Extract patches: (B, C, 1, H', W', kernel_h, kernel_w)
-        x = x.unfold(2, self.kernel_size, self.stride).unfold(3, self.kernel_size, self.stride).unsqueeze(2)
-
-        # Subtract and compute complex mean over input channels and kernel dimensions
-        diff = ringify(x - self.weight)
-        return complex_mean(diff, dim=(1, 5, 6))
 
 
 class RingNN(Module):
