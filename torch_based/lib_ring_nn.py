@@ -11,7 +11,7 @@ def ringify(x: torch.Tensor) -> torch.Tensor:
 
 def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
     """Compute the mean angle, by summing the complex unit numbers and taking the resulting complex number's angle."""
-    dir_x = ringify(torch.cos(x)).sum(dim=dim)
+    dir_x = torch.cos(x).sum(dim=dim)
     dir_y = torch.sin(x).sum(dim=dim)
     return torch.atan2(dir_y, dir_x)
 
@@ -146,7 +146,7 @@ class _RingConv2dFused(Function):
             d_y_d_sx = -dir_y / r2                  # (B, chunk, L)
             d_y_d_sy =  dir_x / r2                  # (B, chunk, L)
 
-            # f_x(diff) = ringify(cos(diff)) ~ cos(diff) for grad (ignoring jumps)
+            # f_x(diff) = cos(diff) for grad
             # df_x/d(diff) ≈ -sin(diff)
             # f_y(diff) = sin(diff), df_y/d(diff) = cos(diff)
 

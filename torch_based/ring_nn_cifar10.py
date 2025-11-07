@@ -118,7 +118,7 @@ class RingNN(Module):
 
 def train():
     epochs = 10
-    batch_size = 10
+    batch_size = 128
     lr = 0.005
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -137,6 +137,7 @@ def train():
     })
     wandb.watch(model, log="all")
 
+    num_train_samples = 0
     for epoch in (t:=trange(epochs, desc="Epoch")):
         for batch in tqdm(train_dl, desc="Train", leave=False):
             x, y = batch
@@ -149,9 +150,12 @@ def train():
 
             accuracy = (pred.argmax(dim=1) == y).float().mean()
 
+            num_train_samples += x.shape[0]
             wandb.log({
                 "train_loss": loss.item(),
                 "train_accuracy": accuracy.item(),
+                "num_train_samples": num_train_samples,
+                "epoch": epoch,
             })
 
         with torch.no_grad():
@@ -171,6 +175,8 @@ def train():
             wandb.log({
                 "test_loss": test_loss,
                 "test_accuracy": test_accuracy,
+                "num_train_samples": num_train_samples,
+                "epoch": epoch,
             })
 
     wandb.finish()
