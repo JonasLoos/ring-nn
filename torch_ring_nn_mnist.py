@@ -43,6 +43,15 @@ def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
     return torch.atan2(dir_y, dir_x)
 
 
+class RingFF(Module):
+    def __init__(self, input_size: int, output_size: int):
+        super().__init__()
+        self.weight = Parameter(torch.randn(input_size, output_size))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return complex_mean(ringify(x.unsqueeze(-1) - self.weight), dim=(-2,))
+
+
 class RingConv2d(Module):
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
@@ -64,14 +73,13 @@ class RingNN(Module):
         super().__init__()
         self.conv1 = RingConv2d(1, 20, 2, 2)
         self.conv2 = RingConv2d(20, 40, 4, 2)
-        self.ff_weight = Parameter(torch.randn(40*6*6, 10))
+        self.ff = RingFF(40*6*6, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = ringify(x).reshape(-1, 1, 28, 28)
         x = self.conv1(x)
         x = self.conv2(x)
         x = x.flatten(1)
-        x = complex_mean(ringify(x.unsqueeze(-1) - self.ff_weight), dim=(-2,))
+        x = self.ff(x)
         return torch.sin(x)
 
 
@@ -82,8 +90,8 @@ def train():
 
     train_dl, test_dl = load_mnist(batch_size=200)
 
-    for epoch in (te:=trange(10, desc="Epoch")):
-        for batch in (tb:=tqdm(train_dl, desc="Train", leave=False)):
+    for epoch in (t:=trange(10, desc="Epoch")):
+        for batch in tqdm(train_dl, desc="Train", leave=False):
             x, y = batch
             x, y = x.to(device), y.to(device)
             pred = model(x)
@@ -91,7 +99,6 @@ def train():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            tb.set_postfix(loss=loss.item())
 
         with torch.no_grad():
             test_loss = 0
@@ -106,7 +113,7 @@ def train():
                 total += len(y)
             test_loss /= total
             test_accuracy = correct / total
-            te.set_postfix(test_loss=test_loss, test_accuracy=test_accuracy)
+            t.set_postfix(test_loss=test_loss, test_accuracy=test_accuracy)
 
 
 
