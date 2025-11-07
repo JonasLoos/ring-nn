@@ -17,6 +17,7 @@ def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
 
 
 class RingFF(Module):
+    '''Simple fully-connected feed-forward ring neural network layer.'''
     def __init__(self, input_size: int, output_size: int):
         super().__init__()
         self.weight = Parameter(torch.randn(input_size, output_size))
@@ -26,6 +27,7 @@ class RingFF(Module):
 
 
 class _RingConv2dFused(Function):
+    '''Fused implementation of the ring convolutional layer forward and backward passes to reduce memory usage.'''
     @staticmethod
     def forward(ctx,
                 x: torch.Tensor,
@@ -181,6 +183,7 @@ class _RingConv2dFused(Function):
 
 
 class RingConv2dFused(Module):
+    '''Ring convolutional layer with fused forward and backward passes to reduce memory usage.'''
     def __init__(self, in_channels: int, out_channels: int,
                  kernel_size: int, stride: int, padding: int = 0):
         super().__init__()
@@ -199,6 +202,7 @@ class RingConv2dFused(Module):
 
 
 class RingConv2dSimple(Module):
+    '''Ring convolutional layer with high memory footprint.'''
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
         self.weight = Parameter(torch.randn(1, in_channels, out_channels, 1, 1, kernel_size, kernel_size))
