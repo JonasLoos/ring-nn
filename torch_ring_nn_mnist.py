@@ -3,8 +3,7 @@ import os
 from math import pi
 import numpy as np
 import torch
-from torch import nn
-from torch.nn import functional as F
+from torch.nn import functional as F, Module, Parameter
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 
@@ -17,19 +16,16 @@ def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
     if not os.path.exists(mnist_path):
         print("Downloading MNIST dataset...")
         urllib.request.urlretrieve(mnist_url, mnist_path)
-
     data = np.load(mnist_path)
 
     # Load and preprocess training data
-    x_train = torch.from_numpy(data['x_train']).reshape(-1, 1, 28, 28).float() / 255.0  # Normalize to [0, 1]
+    x_train = torch.from_numpy(data['x_train']).reshape(-1, 1, 28, 28).float() / 255.0 * pi  # Normalize to [0, pi]
     y_train = torch.from_numpy(data['y_train']).long()
+    train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=batch_size, shuffle=True)
 
     # Load and preprocess test data
-    x_test = torch.from_numpy(data['x_test']).reshape(-1, 1, 28, 28).float() / 255.0  # Normalize to [0, 1]
+    x_test = torch.from_numpy(data['x_test']).reshape(-1, 1, 28, 28).float() / 255.0 * pi  # Normalize to [0, pi]
     y_test = torch.from_numpy(data['y_test']).long()
-
-    # Create data loaders
-    train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(TensorDataset(x_test, y_test), batch_size=batch_size, shuffle=False)
 
     return (train_loader, test_loader)
@@ -40,7 +36,6 @@ def ringify(x: torch.Tensor) -> torch.Tensor:
     return (x + pi) % (2*pi) - pi
 
 
-
 def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
     """Compute the mean angle, by summing the complex unit numbers and taking the resulting complex number's angle."""
     dir_x = ringify(torch.cos(x)).sum(dim=dim)
@@ -48,10 +43,10 @@ def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
     return torch.atan2(dir_y, dir_x)
 
 
-class RingConv2d(nn.Module):
+class RingConv2d(Module):
     def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(1, in_channels, out_channels, 1, 1, kernel_size, kernel_size))
+        self.weight = Parameter(torch.randn(1, in_channels, out_channels, 1, 1, kernel_size, kernel_size))
         self.stride = stride
         self.kernel_size = kernel_size
 
@@ -64,12 +59,12 @@ class RingConv2d(nn.Module):
         return complex_mean(diff, dim=(1, 5, 6))
 
 
-class RingNN(nn.Module):
+class RingNN(Module):
     def __init__(self):
         super().__init__()
         self.conv1 = RingConv2d(1, 20, 2, 2)
         self.conv2 = RingConv2d(20, 40, 4, 2)
-        self.ff_weight = nn.Parameter(torch.randn(40*6*6, 10))
+        self.ff_weight = Parameter(torch.randn(40*6*6, 10))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = ringify(x).reshape(-1, 1, 28, 28)
