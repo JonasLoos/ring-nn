@@ -48,45 +48,33 @@ def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
     return torch.atan2(dir_y, dir_x)
 
 
-def ring_conv2d(x: torch.Tensor, weight: torch.Tensor, kernel_size: int, stride: int) -> torch.Tensor:
-    """
-    Performs ring convolution by extracting patches and computing complex mean.
+class RingConv2d(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride: int):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(1, in_channels, out_channels, 1, 1, kernel_size, kernel_size))
+        self.stride = stride
+        self.kernel_size = kernel_size
 
-    Args:
-        x: Input tensor of shape (B, C, H, W)
-        weight: Weight tensor of shape (out_channels, in_channels, kernel_h, kernel_w)
-        kernel_size: Size of the convolution kernel (assumed square)
-        stride: Stride of the convolution
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Extract patches: (B, C, 1, H', W', kernel_h, kernel_w)
+        x = x.unfold(2, self.kernel_size, self.stride).unfold(3, self.kernel_size, self.stride).unsqueeze(2)
 
-    Returns:
-        Output tensor of shape (B, H', W', out_channels)
-    """
-    # Extract patches: (B, C, H', W', kernel_h, kernel_w)
-    x = x.unfold(2, kernel_size, stride).unfold(3, kernel_size, stride)
-    # Rearrange to (B, H', W', C, kernel_h, kernel_w, 1)
-    x = x.permute(0, 2, 3, 1, 4, 5).unsqueeze(-1)
-
-    # Rearrange weight from (out_channels, in_channels, kernel_h, kernel_w)
-    # to (1, 1, 1, in_channels, kernel_h, kernel_w, out_channels)
-    weight = weight.permute(1, 2, 3, 0)[(None,) * 3]
-
-    # Subtract and compute complex mean over input channels and kernel dimensions
-    diff = ringify(x - weight)
-    return complex_mean(diff, dim=(-4, -3, -2))
+        # Subtract and compute complex mean over input channels and kernel dimensions
+        diff = ringify(x - self.weight)
+        return complex_mean(diff, dim=(1, 5, 6))
 
 
 class RingNN(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1_weight = nn.Parameter(torch.randn(20, 1, 2, 2))
-        self.conv2_weight = nn.Parameter(torch.randn(40, 20, 4, 4))
+        self.conv1 = RingConv2d(1, 20, 2, 2)
+        self.conv2 = RingConv2d(20, 40, 4, 2)
         self.ff_weight = nn.Parameter(torch.randn(40*6*6, 10))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = ringify(x).reshape(-1, 1, 28, 28)
-        x = ring_conv2d(x, self.conv1_weight, kernel_size=2, stride=2)
-        x = x.permute(0, 3, 1, 2)
-        x = ring_conv2d(x, self.conv2_weight, kernel_size=4, stride=2)
+        x = self.conv1(x)
+        x = self.conv2(x)
         x = x.flatten(1)
         x = complex_mean(ringify(x.unsqueeze(-1) - self.ff_weight), dim=(-2,))
         return torch.sin(x)
