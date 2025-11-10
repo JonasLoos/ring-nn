@@ -1,13 +1,15 @@
 import urllib.request
 import os
 from math import pi
+
 import numpy as np
 import torch
 from torch.nn import functional as F, Module
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 
-from lib_ring_nn import RingFF, RingConv2dFused as RingConv2d
+from lib_ring_nn import RingFF, RingConv2dCUDA as RingConv2d
+
 
 def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
     """Load the MNIST dataset."""

@@ -1,6 +1,9 @@
 import urllib.request
 import os
 from math import pi
+import tarfile
+import pickle
+
 import numpy as np
 import torch
 from torch.nn import functional as F, Module
@@ -8,7 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 import wandb
 
-from lib_ring_nn import RingFF, RingConv2dFused as RingConv2d, pool2d
+from lib_ring_nn import RingFF, RingConv2dCUDA as RingConv2d, pool2d, ringify
 
 
 def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
@@ -22,12 +25,10 @@ def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
             urllib.request.urlretrieve(cifar10_url, cifar10_path)
 
         print("Extracting CIFAR-10 dataset...")
-        import tarfile
         with tarfile.open(cifar10_path) as tar:
             tar.extractall()
 
     def unpickle(file):
-        import pickle
         with open(file, 'rb') as fo:
             dict = pickle.load(fo, encoding='bytes')
         return dict
@@ -58,59 +59,58 @@ def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
 class RingNN(Module):
     def __init__(self):
         super().__init__()
-        self.stem = RingConv2d(3, 64, 3, 1, 1)  # 32 -> 32
-        self.s1c1 = RingConv2d(64, 64, 3, 1, 1)  # 32 -> 32
-        self.s1c2 = RingConv2d(64, 64, 3, 1, 1)  # 32 -> 32
-        self.s1c3 = RingConv2d(64, 64, 3, 1, 1)  # 32 -> 32
-        self.s1c4 = RingConv2d(64, 64, 3, 1, 1)  # 32 -> 32
+        self.stem = RingConv2d(3, 32, 3, 1, 1)  # 32 -> 32
+        self.s1c1 = RingConv2d(32, 32, 3, 1, 1)  # 32 -> 32
+        self.s1c2 = RingConv2d(32, 32, 3, 1, 1)  # 32 -> 32
+        # self.s1c3 = RingConv2d(32, 32, 3, 1, 1)  # 32 -> 32
+        # self.s1c4 = RingConv2d(32, 32, 3, 1, 1)  # 32 -> 32
 
-        self.s2c1 = RingConv2d(64, 128, 3, 2, 1)  # 32 -> 16, downsample
-        self.s2c2 = RingConv2d(128, 128, 3, 1, 1)  # 16 -> 16
-        self.s2s1 = RingConv2d(64, 128, 1, 1, 0)  # 16 -> 16, skip
-        self.s2c3 = RingConv2d(128, 128, 3, 1, 1)  # 16 -> 16
-        self.s2c4 = RingConv2d(128, 128, 3, 1, 1)  # 16 -> 16
+        self.s2c1 = RingConv2d(32, 64, 3, 2, 1)  # 32 -> 16, downsample
+        self.s2c2 = RingConv2d(64, 64, 3, 1, 1)  # 16 -> 16
+        self.s2s1 = RingConv2d(32, 64, 1, 1, 0)  # 16 -> 16, skip
+        # self.s2c3 = RingConv2d(64, 64, 3, 1, 1)  # 16 -> 16
+        # self.s2c4 = RingConv2d(64, 64, 3, 1, 1)  # 16 -> 16
 
-        self.s3c1 = RingConv2d(128, 256, 3, 2, 1)  # 16 -> 8, downsample
-        self.s3c2 = RingConv2d(256, 256, 3, 1, 1)  # 8 -> 8
-        self.s3s2 = RingConv2d(128, 256, 1, 1, 0)  # 8 -> 8, skip
-        self.s3c3 = RingConv2d(256, 256, 3, 1, 1)  # 8 -> 8
-        self.s3c4 = RingConv2d(256, 256, 3, 1, 1)  # 8 -> 8
+        self.s3c1 = RingConv2d(64, 128, 3, 2, 1)  # 16 -> 8, downsample
+        self.s3c2 = RingConv2d(128, 128, 3, 1, 1)  # 8 -> 8
+        self.s3s2 = RingConv2d(64, 128, 1, 1, 0)  # 8 -> 8, skip
+        # self.s3c3 = RingConv2d(128, 128, 3, 1, 1)  # 8 -> 8
+        # self.s3c4 = RingConv2d(128, 128, 3, 1, 1)  # 8 -> 8
 
-        self.ff = RingFF(256, 10)
+        self.ff = RingFF(128, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # stem
-        x = self.stem(x)
+        x = self.stem(x)  # input conv
         # stage 1
         tmp = x
-        x = self.s1c1(x)
-        x = self.s1c2(x)
-        x += tmp
-        tmp = x
-        x = self.s1c3(x)
-        x = self.s1c4(x)
-        x += tmp
+        x = self.s1c1(x)  # conv
+        x = self.s1c2(x)  # conv
+        x = ringify(x + tmp)  # skip connection
+        # tmp = x
+        # x = self.s1c3(x)
+        # x = self.s1c4(x)
+        # x = ringify(x + tmp)
         # stage 2
         tmp = x
-        x = self.s2c1(x)
-        x = self.s2c2(x)
-        x += self.s2s1(pool2d(tmp, 2))
-        tmp = x
-        x = self.s2c3(x)
-        x = self.s2c4(x)
-        x += tmp
+        x = self.s2c1(x)  # conv
+        x = self.s2c2(x)  # conv
+        x = ringify(x + self.s2s1(pool2d(tmp, 2)))  # skip connection with 2x2 average pooling
+        # tmp = x
+        # x = self.s2c3(x)
+        # x = self.s2c4(x)
+        # x = ringify(x + tmp)
         # stage 3
         tmp = x
-        x = self.s3c1(x)
-        x = self.s3c2(x)
-        x += self.s3s2(pool2d(tmp, 2))
-        tmp = x
-        x = self.s3c3(x)
-        x = self.s3c4(x)
-        x += tmp
-        tmp = x
+        x = self.s3c1(x)  # conv
+        x = self.s3c2(x)  # conv
+        x = ringify(x + self.s3s2(pool2d(tmp, 2)))  # skip connection with 2x2 average pooling
+        # tmp = x
+        # x = self.s3c3(x)
+        # x = self.s3c4(x)
+        # x = ringify(x + tmp)
         # final layer
-        x = pool2d(x, 8).flatten(1)
+        x = pool2d(x, 8).flatten(1)  # global average pooling
         x = self.ff(x)
 
         return torch.sin(x)
@@ -119,7 +119,7 @@ class RingNN(Module):
 def train():
     epochs = 10
     batch_size = 128
-    lr = 0.005
+    lr = 100
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = RingNN().to(device)
