@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import StepLR
 from tqdm import trange, tqdm
 import wandb
 
-from lib_ring_nn import RingFF, RingConv2dCUDA as RingConv2d, pool2d, ringify
+from lib_ring_nn import RingFF, RingConv2dCUDA as RingConv2d, pool2d
 
 
 def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
@@ -184,12 +184,12 @@ class RingNNSimple(Module):
         x = self.convs[1](x)
         x = self.convs[2](x)
         x = self.convs[3](x)
-        x = ringify(x + pool2d(self.convs[4](tmp), 4))
+        x = x + pool2d(self.convs[4](tmp), 4)
         tmp = x
         x = self.convs[5](x)
         x = self.convs[6](x)
         x = self.convs[7](x)
-        x = ringify(x + pool2d(self.convs[8](tmp), 4))
+        x = x + pool2d(self.convs[8](tmp), 4)
         x = x.flatten(1)
         x = self.ff(x)
         return torch.sin(x)

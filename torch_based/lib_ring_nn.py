@@ -17,11 +17,6 @@ ring_conv2d_cuda = load(
 )
 
 
-def ringify(x: torch.Tensor) -> torch.Tensor:
-    """Handle the circular nature of the number ring."""
-    return (x + pi) % (2*pi) - pi
-
-
 def complex_mean(x: torch.Tensor, dim: tuple[int, ...]) -> torch.Tensor:
     """Compute the mean angle, by summing the complex unit numbers and taking the resulting complex number's angle."""
     dir_x = torch.cos(x).sum(dim=dim)
@@ -36,7 +31,7 @@ class RingFF(Module):
         self.weight = Parameter(torch.empty(input_size, output_size).uniform_(-pi, pi))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return complex_mean(ringify(x.unsqueeze(-1) - self.weight), dim=(-2,))
+        return complex_mean(x.unsqueeze(-1) - self.weight, dim=(-2,))
 
 
 class RingConv2dFn(Function):
@@ -88,8 +83,7 @@ class RingConv2dSimple(Module):
         x = x.unfold(2, self.kernel_size, self.stride).unfold(3, self.kernel_size, self.stride).unsqueeze(2)
 
         # Subtract and compute complex mean over input channels and kernel dimensions
-        diff = ringify(x - self.weight)
-        return complex_mean(diff, dim=(1, 5, 6))
+        return complex_mean(x - self.weight, dim=(1, 5, 6))
 
 
 def pool2d(x: torch.Tensor, kernel_size: int) -> torch.Tensor:

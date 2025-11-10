@@ -5,14 +5,6 @@
 #include <cuda_runtime.h>
 #include <math_constants.h>
 
-__device__ __forceinline__ float ringify(float x) {
-    const float pi     = 3.14159265358979323846f;
-    const float two_pi = 6.28318530717958647692f;
-    float y = x + pi;
-    y = fmodf(y, two_pi);
-    if (y < 0.f) y += two_pi;
-    return y - pi;
-}
 
 __global__ void ring_conv2d_forward_kernel(
     const float* __restrict__ x,       // (B, C, H, W)
@@ -44,19 +36,20 @@ __global__ void ring_conv2d_forward_kernel(
     for (int c = 0; c < C; ++c) {
         for (int ky = 0; ky < K; ++ky) {
             int iy = base_iy + ky;
-            if ((unsigned)iy >= (unsigned)H) continue;
 
             for (int kx = 0; kx < K; ++kx) {
                 int ix = base_ix + kx;
-                if ((unsigned)ix >= (unsigned)W) continue;
 
-                int x_index = ((b * C + c) * H + iy) * W + ix;
+                float xv = 0.0f;  // Default to 0 for padding
+                if ((unsigned)iy < (unsigned)H && (unsigned)ix < (unsigned)W) {
+                    int x_index = ((b * C + c) * H + iy) * W + ix;
+                    xv = x[x_index];
+                }
+
                 int w_index = (((o * C + c) * K + ky) * K) + kx;
-
-                float xv = x[x_index];
                 float wv = w[w_index];
 
-                float diff = ringify(xv - wv);
+                float diff = xv - wv;
 
                 float cval = cosf(diff);
                 float sval = sinf(diff);
@@ -122,7 +115,7 @@ __global__ void ring_conv2d_backward_kernel(
                 float xv = x[x_index];
                 float wv = w[w_index];
 
-                float diff = ringify(xv - wv);
+                float diff = xv - wv;
                 float cval = cosf(diff);
                 float sval = sinf(diff);
 
@@ -153,14 +146,14 @@ __global__ void ring_conv2d_backward_kernel(
                 float xv = x[x_index];
                 float wv = w[w_index];
 
-                float diff = ringify(xv - wv);
+                float diff = xv - wv;
                 float cval = cosf(diff);
                 float sval = sinf(diff);
 
                 // grad_diff = go * (d_y_d_sx * (-sin(diff)) + d_y_d_sy * cos(diff))
                 float grad_diff = go * (d_y_d_sx * (-sval) + d_y_d_sy * cval);
 
-                // diff = x - w  (ringify treated as identity in backward, like your Python)
+                // diff = x - w
                 // so dL/dx += grad_diff, dL/dw -= grad_diff
                 atomicAdd(&grad_x[x_index], grad_diff);
                 atomicAdd(&grad_w[w_index], -grad_diff);
