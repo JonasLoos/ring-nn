@@ -5,4 +5,4 @@ For testing, this folder contains a float-based implementation of the ring-nn, w
 * [MNIST](ring_nn_mnist.py)
 * [CIFAR10](ring_nn_cifar10.py)
 
-As the naive `RingConv2d` implementation is very memory intensive and slow, we use a cuda kernel (`ring_conv2d_cuda.cu`, ~3x faster than a fused torch function).
+As the naive `RingConv2d` implementation is very memory intensive and slow, we use a cuda kernel (`ring_conv2d_kernel.cuh` -> `RingConv2dCUDA`).

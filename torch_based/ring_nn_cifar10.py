@@ -3,11 +3,13 @@ import os
 from math import pi
 import tarfile
 import pickle
+from time import time
 
 import numpy as np
 import torch
-from torch.nn import functional as F, Module
+from torch.nn import functional as F, Module, ModuleList
 from torch.utils.data import DataLoader, TensorDataset
+from torch.optim.lr_scheduler import StepLR
 from tqdm import trange, tqdm
 import wandb
 
@@ -56,7 +58,13 @@ def load_cifar10(batch_size: int) -> tuple[DataLoader, DataLoader]:
     )
 
 
-class RingNN(Module):
+#########################
+# Model definitions below
+#########################
+
+# Doesn't seem to really work yet
+class RingNNOld(Module):
+    """Resnet inspired architecture."""
     def __init__(self):
         super().__init__()
         self.stem = RingConv2d(3, 32, 3, 1, 1)  # 32 -> 32
@@ -116,14 +124,91 @@ class RingNN(Module):
         return torch.sin(x)
 
 
+class RingNNStage(Module):
+    def __init__(self, in_channels):
+        super().__init__()
+        out_channels = in_channels * 2
+        self.c1 = RingConv2d(in_channels, out_channels, 3, 2, 1)
+        # self.c2 = RingConv2d(out_channels, out_channels, 3, 1, 1)
+        self.s1 = RingConv2d(in_channels, out_channels, 1, 1, 0)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        skip = x
+        x = self.c1(x)
+        # x = self.c2(x)
+        x = ringify(x + pool2d(self.s1(skip), 2))
+        return x
+
+
+# Doesn't seem to really work yet
+class RingNN(Module):
+    def __init__(self):
+        super().__init__()
+        self.stages = ModuleList([
+            RingConv2d(3, 16, 3, 1, 1),
+            RingNNStage(16),
+            RingNNStage(32),
+            RingNNStage(64),
+            RingConv2d(128, 256, 2, 2, 0),
+        ])
+        self.ff = RingFF(256*2*2, 10)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for stage in self.stages:
+            x = stage(x)
+        x = x.flatten(1)
+        x = self.ff(x)
+        return torch.sin(x)
+
+
+# works at least a bit
+class RingNNSimple(Module):
+    def __init__(self):
+        super().__init__()
+        self.convs = ModuleList([
+            RingConv2d(3, 32, 3, 1, 1),  # stem
+            RingConv2d(32, 32, 3, 2, 1),  # down conv -> 16x16
+            RingConv2d(32, 64, 3, 1, 1),  # conv
+            RingConv2d(64, 64, 3, 2, 1),  # down conv -> 8x8
+            RingConv2d(32, 64, 1, 1, 0),  # skip conv
+            RingConv2d(64, 128, 3, 2, 1),  # down conv -> 4x4
+            RingConv2d(128, 128, 3, 1, 1),  # conv
+            RingConv2d(128, 128, 2, 2, 0),  # down conv -> 2x2
+            RingConv2d(64, 128, 1, 1, 0),  # skip conv
+        ])
+        self.ff = RingFF(128*2*2, 10)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.convs[0](x)
+        tmp = x
+        x = self.convs[1](x)
+        x = self.convs[2](x)
+        x = self.convs[3](x)
+        x = ringify(x + pool2d(self.convs[4](tmp), 4))
+        tmp = x
+        x = self.convs[5](x)
+        x = self.convs[6](x)
+        x = self.convs[7](x)
+        x = ringify(x + pool2d(self.convs[8](tmp), 4))
+        x = x.flatten(1)
+        x = self.ff(x)
+        return torch.sin(x)
+
+
 def train():
     epochs = 10
     batch_size = 128
-    lr = 100
+    lr = 0.005
+    compile = False
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = RingNN().to(device)
+    model = RingNNSimple().to(device)
+    if compile:
+        model = torch.compile(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = StepLR(optimizer, step_size=1, gamma=0.8)  # Decay LR by 0.8 every epoch
+
+    torch.cuda.reset_peak_memory_stats()
 
     train_dl, test_dl = load_cifar10(batch_size=batch_size)
 
@@ -134,12 +219,17 @@ def train():
         "lr": lr,
         "epochs": epochs,
         "batch_size": batch_size,
+        "device": device,
+        "cuda": torch.cuda.is_available(),
+        "cuda_device": torch.cuda.get_device_name(device),
+        "compiled": compile,
     })
     wandb.watch(model, log="all")
 
     num_train_samples = 0
     for epoch in (t:=trange(epochs, desc="Epoch")):
         for batch in tqdm(train_dl, desc="Train", leave=False):
+            start_time = time()
             x, y = batch
             x, y = x.to(device), y.to(device)
             pred = model(x)
@@ -147,7 +237,7 @@ def train():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
+            end_time = time()
             accuracy = (pred.argmax(dim=1) == y).float().mean()
 
             num_train_samples += x.shape[0]
@@ -156,7 +246,10 @@ def train():
                 "train_accuracy": accuracy.item(),
                 "num_train_samples": num_train_samples,
                 "epoch": epoch,
+                "vram_usage": torch.cuda.max_memory_allocated() / 1024**3,
+                "train_batch_time": end_time - start_time,
             })
+            torch.cuda.reset_peak_memory_stats()
 
         with torch.no_grad():
             test_loss = 0
@@ -177,7 +270,10 @@ def train():
                 "test_accuracy": test_accuracy,
                 "num_train_samples": num_train_samples,
                 "epoch": epoch,
+                "learning_rate": scheduler.get_last_lr()[0],
             })
+
+        scheduler.step()  # Decay learning rate
 
     wandb.finish()
 

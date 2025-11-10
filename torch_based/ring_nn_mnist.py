@@ -53,6 +53,7 @@ class RingNN(Module):
 def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = RingNN().to(device)
+    # model = torch.compile(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
 
     train_dl, test_dl = load_mnist(batch_size=200)
