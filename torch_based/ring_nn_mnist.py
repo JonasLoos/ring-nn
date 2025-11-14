@@ -38,13 +38,15 @@ def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
 class RingNN(Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = RingConv2d(1, 20, 2, 2)
-        self.conv2 = RingConv2d(20, 40, 4, 2)
-        self.ff = RingFF(40*6*6, 10)
+        self.conv1 = RingConv2d(1, 32, 3, 2, 1)
+        self.conv2 = RingConv2d(32, 64, 3, 2, 0)
+        self.conv3 = RingConv2d(64, 128, 3, 2, 1)
+        self.ff = RingFF(128*3*3, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
         x = self.conv2(x)
+        x = self.conv3(x)
         x = x.flatten(1)
         x = self.ff(x)
         return torch.sin(x)
@@ -54,11 +56,11 @@ def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = RingNN().to(device)
     # model = torch.compile(model)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
-    train_dl, test_dl = load_mnist(batch_size=200)
+    train_dl, test_dl = load_mnist(batch_size=256)
 
-    for epoch in (t:=trange(10, desc="Epoch")):
+    for epoch in (t:=trange(100, desc="Epoch")):
         for batch in tqdm(train_dl, desc="Train", leave=False):
             x, y = batch
             x, y = x.to(device), y.to(device)
