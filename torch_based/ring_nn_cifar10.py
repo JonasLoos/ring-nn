@@ -1,3 +1,5 @@
+from pathlib import Path
+from datetime import datetime
 import urllib.request
 import os
 from math import pi
@@ -167,16 +169,17 @@ class RingNNSimple(Module):
         super().__init__()
         self.convs = ModuleList([
             RingConv2d(3, 32, 3, 1, 1),  # stem
-            RingConv2d(32, 32, 3, 2, 1),  # down conv -> 16x16
-            RingConv2d(32, 64, 3, 1, 1),  # conv
-            RingConv2d(64, 64, 3, 2, 1),  # down conv -> 8x8
-            RingConv2d(32, 64, 1, 1, 0),  # skip conv
-            RingConv2d(64, 128, 3, 2, 1),  # down conv -> 4x4
+            RingConv2d(32, 64, 3, 2, 1),  # down conv -> 16x16
+            RingConv2d(64, 64, 3, 1, 1),  # conv
+            RingConv2d(64, 128, 3, 2, 1),  # down conv -> 8x8
+            RingConv2d(32, 128, 1, 1, 0),  # skip conv
             RingConv2d(128, 128, 3, 1, 1),  # conv
-            RingConv2d(128, 128, 2, 2, 0),  # down conv -> 2x2
-            RingConv2d(64, 128, 1, 1, 0),  # skip conv
+            RingConv2d(128, 256, 3, 2, 1),  # down conv -> 4x4
+            RingConv2d(256, 256, 3, 1, 1),  # conv
+            RingConv2d(256, 256, 2, 2, 0),  # down conv -> 2x2
+            RingConv2d(128, 256, 1, 1, 0),  # skip conv
         ])
-        self.ff = RingFF(128*2*2, 10)
+        self.ff1 = RingFF(256*2*2, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.convs[0](x)
@@ -189,16 +192,18 @@ class RingNNSimple(Module):
         x = self.convs[5](x)
         x = self.convs[6](x)
         x = self.convs[7](x)
-        x = x + pool2d(self.convs[8](tmp), 4)
+        x = self.convs[8](x)
+        x = x + pool2d(self.convs[9](tmp), 4)
         x = x.flatten(1)
-        x = self.ff(x)
+        x = self.ff1(x)
         return torch.sin(x)
 
 
 def train():
-    epochs = 10
-    batch_size = 128
-    lr = 0.005
+    epochs = 500
+    batch_size = 512
+    lr = 0.03
+    lr_decay = 0.995
     compile = False
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -206,9 +211,9 @@ def train():
     if compile:
         model = torch.compile(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = StepLR(optimizer, step_size=1, gamma=0.8)  # Decay LR by 0.8 every epoch
+    scheduler = StepLR(optimizer, step_size=1, gamma=lr_decay)
 
-    torch.cuda.reset_peak_memory_stats()
+    # torch.cuda.reset_peak_memory_stats()
 
     train_dl, test_dl = load_cifar10(batch_size=batch_size)
 
@@ -217,6 +222,7 @@ def train():
         "model": model.__class__.__name__,
         "optimizer": optimizer.__class__.__name__,
         "lr": lr,
+        "lr_decay": lr_decay,
         "epochs": epochs,
         "batch_size": batch_size,
         "device": device,
@@ -246,10 +252,10 @@ def train():
                 "train_accuracy": accuracy.item(),
                 "num_train_samples": num_train_samples,
                 "epoch": epoch,
-                "vram_usage": torch.cuda.max_memory_allocated() / 1024**3,
+                # "vram_usage": torch.cuda.max_memory_allocated() / 1024**3,
                 "train_batch_time": end_time - start_time,
             })
-            torch.cuda.reset_peak_memory_stats()
+            # torch.cuda.reset_peak_memory_stats()
 
         with torch.no_grad():
             test_loss = 0
@@ -275,6 +281,14 @@ def train():
 
         scheduler.step()  # Decay learning rate
 
+    # Save model to wandb
+    model_path = Path(f"models/ring_nn_cifar10_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}_{wandb.run.id}.pt")
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(model.state_dict(), model_path)
+    artifact = wandb.Artifact("model", type="model")
+    artifact.add_file(model_path)
+    wandb.log_artifact(artifact)
+    
     wandb.finish()
 
 

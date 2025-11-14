@@ -9,3 +9,4 @@ logs/
 *.pkl
 *.tar.gz
 *.csv.gz
+*.pt
