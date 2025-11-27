@@ -8,7 +8,8 @@ from torch.nn import functional as F, Module
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import trange, tqdm
 
-from lib_ring_nn import RingFF, RingConv2dCUDA as RingConv2d
+from lib_ring_nn2 import RingFF, RingConv2dCUDA as RingConv2d
+# from lib_ring_nn import RingFF, RingConv2dCUDA as RingConv2d
 
 
 def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
@@ -38,10 +39,10 @@ def load_mnist(batch_size: int) -> tuple[DataLoader, DataLoader]:
 class RingNN(Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = RingConv2d(1, 32, 3, 2, 1)
-        self.conv2 = RingConv2d(32, 64, 3, 2, 0)
-        self.conv3 = RingConv2d(64, 128, 3, 2, 1)
-        self.ff = RingFF(128*3*3, 10)
+        self.conv1 = RingConv2d(1, 10, 3, 2, 1)
+        self.conv2 = RingConv2d(10, 20, 3, 2, 0)
+        self.conv3 = RingConv2d(20, 20, 3, 2, 1)
+        self.ff = RingFF(20*3*3, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
@@ -53,7 +54,12 @@ class RingNN(Module):
 
 
 def train():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    #     device = torch.device("mps")
+    # elif torch.cuda.is_available():
+    #     device = torch.device("cuda")
+    # else:
+    device = torch.device("cpu")
     model = RingNN().to(device)
     # model = torch.compile(model)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
