@@ -84,11 +84,6 @@ Best results from local [wandb](https://wandb.ai) runs on disk (Nov 2025):
 
 On MNIST and Higgs, the integer implementation works well. CIFAR10 is harder: the integer implementation stays around 42%, but the torch implementation with a deeper `RingNNSimple` architecture and longer training reaches ~59%. Overall, performance is still well below standard CNNs, but clearly above a linear classifier.
 
-### Artifacts on disk
-
-* **wandb logs**: `wandb/` and `torch_based/wandb/` (~170 completed runs with test accuracy)
-* **saved models**: `logs/*_ring_nn.pkl` (integer checkpoints, saved on train end/interrupt) and `torch_based/models/*.pt` (best CIFAR10 torch checkpoints)
-
 ### Common hyperparams (integer implementation)
 
 * optimizer: Adam
