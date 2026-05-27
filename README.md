@@ -1,15 +1,28 @@
 # Ring Neural Network
 
-This repo contains an implementation of integer ring neural networks in Python. They operate on integers with overflow instead of floats and use `-` instead of matmul.
+This repo contains an implementation of ring neural networks in Python. They operate on angles in \([-π, π]\) instead of using standard dot-product neurons.
+
+There are two implementations:
+
+* **Integer-based** (this directory): `RingTensor` uses integers with overflow as fixed-point ring values; custom autograd on top of PyTorch.
+* **Torch-based** ([`torch_based/`](torch_based/)): float angles with native PyTorch autograd and a custom CUDA kernel for convolutions.
 
 ```sh
 # setup
 pip install -r requirements.txt
 
-# training
+# training (integer implementation)
 python ring_nn_mnist.py
 python ring_nn_cifar10.py
 python ring_nn_higgs.py
+
+# hyperparameter sweep (MNIST, integer implementation)
+python wandb_mnist_sweep.py
+
+# training (torch implementation)
+cd torch_based
+python ring_nn_mnist.py
+python ring_nn_cifar10.py
 
 # test
 python test_ring_nn.py
@@ -50,16 +63,36 @@ In this implementation a `RingTensor` represents a real number between -π and �
 
 Implementation of Ring and Real Tensors with many usual operations and autograd is functional. Neural network layers (FF, Conv, Sequential) with one PyTorch-like API and one with shape inference are available. Dataset loading (MNIST, CIFAR10, Higgs) and optimizers (SGD, Adam) work.
 
-Current performance (test accuracy):
-* **MNIST**: **95.3%** for a nn with 3 conv and 2 ff layer with 29k params
-* **CIFAR10**: **42.3%** for a nn with 3 conv and 2 ff layer with 98k params
-* **Higgs**: **70.7%** for a nn with 4 ff layers with 89k params
+### Results (test accuracy)
 
-i.e. learning works, but performance is still quite bad, slightly better than a linear classifier.
+Best results from local [wandb](https://wandb.ai) runs on disk (Nov 2025):
 
-Common hyperparams:
+**Integer implementation**
+
+| Dataset | Accuracy | Architecture | Params | Notes |
+| -- | -- | -- | -- | -- |
+| MNIST | **95.9%** | 3 conv + 2 ff | 89k | `ring_nn_mnist.py`, 10 epochs |
+| MNIST | **95.4%** | 3 conv + 2 ff | 29k | best from `wandb_mnist_sweep.py` (model `nn4`) |
+| CIFAR10 | **42.3%** | 3 conv + 2 ff | 98k | 20 epochs |
+| Higgs | **70.8%** | 4 ff | 89k | 10 epochs |
+
+**Torch implementation** ([`torch_based/`](torch_based/))
+
+| Dataset | Accuracy | Architecture | Notes |
+| -- | -- | -- | -- |
+| CIFAR10 | **58.7%** | `RingNNSimple` | 500 epochs, Adam lr=0.03, batch 512, CUDA conv kernel |
+
+On MNIST and Higgs, the integer implementation works well. CIFAR10 is harder: the integer implementation stays around 42%, but the torch implementation with a deeper `RingNNSimple` architecture and longer training reaches ~59%. Overall, performance is still well below standard CNNs, but clearly above a linear classifier.
+
+### Artifacts on disk
+
+* **wandb logs**: `wandb/` and `torch_based/wandb/` (~170 completed runs with test accuracy)
+* **saved models**: `logs/*_ring_nn.pkl` (integer checkpoints, saved on train end/interrupt) and `torch_based/models/*.pt` (best CIFAR10 torch checkpoints)
+
+### Common hyperparams (integer implementation)
+
 * optimizer: Adam
-* learning rate: 1e-2 - 1e+1 (decay: ~0.998)
+* learning rate: 1e-2 - 1e+0 (decay: ~0.998)
 * batch size: ~200
 * epochs: 10
 * precision: 16 bit
